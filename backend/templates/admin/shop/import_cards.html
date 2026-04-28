@@ -1,0 +1,31 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<style>
+  .card-import-help {
+    max-width: 760px;
+    padding: 16px;
+    margin: 0 0 20px;
+    border: 1px solid #d8e2d8;
+    border-radius: 8px;
+    background: #f6faf5;
+    line-height: 1.7;
+  }
+  .card-import-help code {
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #e8f1e8;
+  }
+</style>
+<h1>为「{{ product.name }}」批量导入卡密</h1>
+<div class="card-import-help">
+  <strong>怎么填：</strong>把供应商给你的卡密粘贴到下面，每行一条。<br>
+  <strong>示例：</strong><code>ABC-123-001</code>、<code>ABC-123-002</code>。<br>
+  提交后，系统会自动加密保存；前台库存会立即增加。
+</div>
+<form method="post">
+  {% csrf_token %}
+  {{ form.as_p }}
+  <button type="submit" class="default">导入</button>
+  <a href="{% url 'admin:shop_product_changelist' %}" class="button">返回商品列表</a>
+</form>
+{% endblock %}

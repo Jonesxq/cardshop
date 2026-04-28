@@ -1,0 +1,92 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<style>
+  .guide-wrap {
+    max-width: 980px;
+  }
+  .guide-steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+    margin: 20px 0 28px;
+  }
+  .guide-card {
+    padding: 18px;
+    border: 1px solid #dce5dc;
+    border-radius: 8px;
+    background: #fff;
+  }
+  .guide-card h2 {
+    margin: 0 0 10px;
+    font-size: 18px;
+  }
+  .guide-card p {
+    min-height: 48px;
+    margin: 0 0 14px;
+    line-height: 1.65;
+  }
+  .guide-card .button {
+    display: inline-block;
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: #417690;
+    color: #fff;
+  }
+  .guide-note {
+    padding: 16px;
+    border-left: 4px solid #79aec8;
+    background: #f5f9fb;
+    line-height: 1.8;
+  }
+</style>
+
+<div class="guide-wrap">
+  <h1>后台使用指南</h1>
+  <p>你的站点只卖 Codex 卡密，日常补货直接使用“一键导入”即可。</p>
+
+  <div class="guide-steps">
+    <section class="guide-card">
+      <h2>1. 一键导入 Codex 卡密</h2>
+      <p>填写价格和说明，粘贴卡密或上传 TXT/CSV，系统会自动创建商品并补充库存。</p>
+      <a class="button" href="{{ codex_import_url }}">一键导入</a>
+    </section>
+
+    <section class="guide-card">
+      <h2>2. 查看商品</h2>
+      <p>导入后会出现唯一商品“Codex 卡密”，可以查看库存、价格和前台上架状态。</p>
+      <a class="button" href="{{ product_list_url }}">商品列表</a>
+    </section>
+
+    <section class="guide-card">
+      <h2>3. 前台购买测试</h2>
+      <p>刷新前台首页，看到 Codex 卡密库存增加后，就可以下单并模拟支付测试发货。</p>
+      <a class="button" href="/">打开前台</a>
+    </section>
+
+    <section class="guide-card">
+      <h2>4. 查看订单</h2>
+      <p>用户下单和支付后的记录会出现在订单列表，已支付订单会显示发货内容。</p>
+      <a class="button" href="{{ order_list_url }}">查看订单</a>
+    </section>
+
+    <section class="guide-card">
+      <h2>5. 配置公告</h2>
+      <p>公告会展示在前台首页，可用于说明购买须知、售后规则或维护通知。</p>
+      <a class="button" href="{{ announcement_add_url }}">新增公告</a>
+    </section>
+
+    <section class="guide-card">
+      <h2>6. 修改站点信息</h2>
+      <p>站点名称、售后联系方式等内容在这里配置，不需要改代码。</p>
+      <a class="button" href="{{ site_config_url }}">站点配置</a>
+    </section>
+  </div>
+
+  <div class="guide-note">
+    <strong>最常用流程：</strong>
+    Codex 卡密一键导入 → 前台刷新 → 下单测试。<br>
+    不建议直接在“卡密库存”里新增，因为卡密需要经过系统加密；请使用“一键导入”入口。
+  </div>
+</div>
+{% endblock %}

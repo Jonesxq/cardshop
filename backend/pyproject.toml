@@ -1,0 +1,29 @@
+[project]
+name = "ai-card-shop-backend"
+version = "0.1.0"
+description = "Django backend for an AI virtual goods card-delivery shop MVP"
+requires-python = ">=3.13"
+dependencies = [
+    "Django>=5.2,<5.3",
+    "djangorestframework>=3.16,<3.17",
+    "djangorestframework-simplejwt>=5.5,<5.6",
+    "django-cors-headers>=4.7,<4.8",
+    "django-redis>=5.4,<5.5",
+    "cryptography>=45,<46",
+    "PyMySQL>=1.1,<1.2",
+    "python-dotenv>=1.1,<1.2",
+    "gunicorn>=23,<24",
+    "whitenoise>=6.9,<7",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-django>=4.10,<5",
+]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+python_files = ["test_*.py", "*_test.py"]
+testpaths = ["tests"]
+
