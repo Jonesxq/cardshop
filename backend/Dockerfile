@@ -1,11 +1,31 @@
 FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
+    PIP_TRUSTED_HOST=mirrors.aliyun.com
 
 WORKDIR /app
 
-RUN apt-get update \
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i \
+            -e 's|http://deb.debian.org/debian-security|http://mirrors.aliyun.com/debian-security|g' \
+            -e 's|http://deb.debian.org/debian|http://mirrors.aliyun.com/debian|g' \
+            -e 's|https://deb.debian.org/debian-security|https://mirrors.aliyun.com/debian-security|g' \
+            -e 's|https://deb.debian.org/debian|https://mirrors.aliyun.com/debian|g' \
+            /etc/apt/sources.list.d/debian.sources; \
+    elif [ -f /etc/apt/sources.list ]; then \
+        sed -i \
+            -e 's|http://deb.debian.org/debian-security|http://mirrors.aliyun.com/debian-security|g' \
+            -e 's|http://deb.debian.org/debian|http://mirrors.aliyun.com/debian|g' \
+            -e 's|http://security.debian.org/debian-security|http://mirrors.aliyun.com/debian-security|g' \
+            -e 's|https://deb.debian.org/debian-security|https://mirrors.aliyun.com/debian-security|g' \
+            -e 's|https://deb.debian.org/debian|https://mirrors.aliyun.com/debian|g' \
+            -e 's|https://security.debian.org/debian-security|https://mirrors.aliyun.com/debian-security|g' \
+            /etc/apt/sources.list; \
+    fi; \
+    apt-get update \
     && apt-get install -y --no-install-recommends build-essential default-libmysqlclient-dev pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
