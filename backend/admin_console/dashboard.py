@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Sum
 from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
 
@@ -10,6 +10,34 @@ from shop.models import CardSecret, Product
 
 def _money(value):
     return f"{value or Decimal('0.00'):.2f}"
+
+
+def _product_stock_counts():
+    counts = {}
+    for row in CardSecret.objects.values("product_id", "status").annotate(count=Count("id")):
+        stock = counts.setdefault(
+            row["product_id"],
+            {
+                "available": 0,
+                "reserved": 0,
+                "sold": 0,
+                "void": 0,
+            },
+        )
+        stock[row["status"]] = row["count"]
+    return counts
+
+
+def _paid_order_stats():
+    return {
+        row["product_id"]: {
+            "paid_order_count": row["paid_order_count"],
+            "paid_amount": row["paid_amount"],
+        }
+        for row in Order.objects.filter(status=Order.Status.PAID)
+        .values("product_id")
+        .annotate(paid_order_count=Count("id"), paid_amount=Coalesce(Sum("amount"), Decimal("0.00")))
+    }
 
 
 def get_dashboard_payload():
@@ -22,21 +50,26 @@ def get_dashboard_payload():
         today_order_count=Count("id"),
         today_paid_amount=Coalesce(Sum("amount"), Decimal("0.00")),
     )
+    pending_order_count = Order.objects.filter(status=Order.Status.PENDING).count()
+    abnormal_payment_count = PaymentTransaction.objects.exclude(status=PaymentTransaction.Status.SUCCESS).count()
 
-    products = Product.objects.annotate(
-        available_card_count=Count("cards", filter=Q(cards__status=CardSecret.Status.AVAILABLE)),
-        paid_order_count=Count("orders", filter=Q(orders__status=Order.Status.PAID)),
-        paid_order_amount=Coalesce(Sum("orders__amount", filter=Q(orders__status=Order.Status.PAID)), Decimal("0.00")),
-    )
+    stock_counts = _product_stock_counts()
+    paid_stats = _paid_order_stats()
+    products = list(Product.objects.all())
+    low_stock_candidates = [
+        product for product in products if product.is_active and stock_counts.get(product.id, {}).get("available", 0) <= 5
+    ]
+    low_stock_product_count = len(low_stock_candidates)
 
     low_stock_products = [
         {
             "id": product.id,
             "name": product.name,
-            "available": product.available_card_count,
+            "available": stock_counts.get(product.id, {}).get("available", 0),
         }
-        for product in products.filter(is_active=True, available_card_count__lte=5).order_by(
-            "available_card_count", "id"
+        for product in sorted(
+            low_stock_candidates,
+            key=lambda item: (stock_counts.get(item.id, {}).get("available", 0), item.id),
         )[:10]
     ]
 
@@ -78,16 +111,26 @@ def get_dashboard_payload():
         {
             "id": product.id,
             "name": product.name,
-            "paid_order_count": product.paid_order_count,
-            "paid_amount": _money(product.paid_order_amount),
+            "paid_order_count": paid_stats.get(product.id, {}).get("paid_order_count", 0),
+            "paid_amount": _money(paid_stats.get(product.id, {}).get("paid_amount")),
         }
-        for product in products.order_by("-paid_order_count", "-paid_order_amount", "id")[:10]
+        for product in sorted(
+            products,
+            key=lambda item: (
+                -paid_stats.get(item.id, {}).get("paid_order_count", 0),
+                -paid_stats.get(item.id, {}).get("paid_amount", Decimal("0.00")),
+                item.id,
+            ),
+        )[:10]
     ]
 
     return {
         "summary": {
             "today_order_count": summary["today_order_count"],
             "today_paid_amount": _money(summary["today_paid_amount"]),
+            "pending_order_count": pending_order_count,
+            "low_stock_product_count": low_stock_product_count,
+            "abnormal_payment_count": abnormal_payment_count,
         },
         "low_stock_products": low_stock_products,
         "abnormal_payments": abnormal_payments,

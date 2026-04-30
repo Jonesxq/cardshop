@@ -53,6 +53,9 @@ class ProductSerializer(serializers.ModelSerializer):
         ]
 
     def get_stock(self, obj):
+        stock_map = self.context.get("stock_counts_by_product", {})
+        if obj.id in stock_map:
+            return stock_map[obj.id]
         counts = {status: 0 for status, _label in CardSecret.Status.choices}
         for row in obj.cards.values("status").annotate(count=Count("id")):
             counts[row["status"]] = row["count"]
@@ -134,7 +137,8 @@ class PaymentAdminSerializer(serializers.ModelSerializer):
         payload = dict(obj.raw_payload or {})
         if self.context.get("can_view_sensitive_payload"):
             return payload
-        for key in ("buyer_email", "email", "phone", "mobile"):
-            if key in payload:
+        sensitive_keys = {"buyer_email", "email", "phone", "mobile"}
+        for key in list(payload):
+            if key.lower() in sensitive_keys:
                 payload[key] = "***"
         return payload
