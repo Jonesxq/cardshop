@@ -1,6 +1,6 @@
 services:
   mysql:
-    image: mysql:8.4
+    image: ${MYSQL_IMAGE:-m.daocloud.io/docker.io/library/mysql:8.4}
     restart: unless-stopped
     environment:
       MYSQL_DATABASE: ${DB_NAME:-cardshop}
@@ -17,7 +17,7 @@ services:
       retries: 10
 
   redis:
-    image: redis:7-alpine
+    image: ${REDIS_IMAGE:-m.daocloud.io/docker.io/library/redis:7-alpine}
     restart: unless-stopped
     volumes:
       - redis_data:/data
@@ -30,6 +30,8 @@ services:
   backend:
     build:
       context: ./backend
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-m.daocloud.io/docker.io/library/python:3.13-alpine}
     restart: unless-stopped
     env_file:
       - path: .env
@@ -62,6 +64,9 @@ services:
     build:
       context: .
       dockerfile: ./frontend/Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:24-alpine}
+        NGINX_IMAGE: ${NGINX_IMAGE:-nginx:1.27-alpine}
     restart: unless-stopped
     depends_on:
       backend:
