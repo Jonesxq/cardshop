@@ -17,6 +17,7 @@ from rest_framework.views import APIView
 
 from orders.models import Order, PaymentTransaction
 from shop.models import Announcement, CardSecret, Category, Product, SiteConfig
+from shop.services import DEFAULT_SITE
 
 from .audit import record_operation
 from .dashboard import get_dashboard_payload
@@ -53,7 +54,7 @@ from .serializers import (
 )
 
 
-ALLOWED_SITE_CONFIG_KEYS = {"site_name", "logo_url", "support_contact", "footer_text"}
+ALLOWED_SITE_CONFIG_KEYS = set(DEFAULT_SITE)
 
 
 def get_stock_counts_by_product(product_ids):

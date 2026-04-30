@@ -3,6 +3,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from admin_console.models import AdminOperationLog, AdminProfile
+from admin_console.permissions import ROLE_PERMISSIONS
 from shop.models import Announcement, SiteConfig
 
 
@@ -152,6 +153,17 @@ class AdminConsoleUsersContentTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    def test_last_active_staff_superadmin_cannot_be_deactivated(self):
+        self.authenticate(self.superadmin)
+
+        response = self.client.patch(
+            f"/api/admin-console/users/{self.superadmin.id}",
+            {"is_active": False, "reason": "Deactivate final admin"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
     def test_superadmin_can_list_users_with_results(self):
         self.authenticate(self.superadmin)
 
@@ -261,6 +273,30 @@ class AdminConsoleUsersContentTests(TestCase):
         self.assertEqual(log_data["ip_address"], "")
         self.assertEqual(log_data["user_agent"], "")
 
+    def test_operator_log_list_redacts_staff_update_details(self):
+        self.authenticate(self.operator)
+        AdminOperationLog.objects.create(
+            actor=self.superadmin,
+            actor_email=self.superadmin.email,
+            actor_role="superadmin",
+            action="user.update_staff",
+            target_type="User",
+            target_id=str(self.operator.id),
+            before={"role": "operator", "is_staff": True},
+            after={"role": "finance", "is_staff": True},
+            ip_address="127.0.0.1",
+            user_agent="Sensitive Browser",
+        )
+
+        response = self.client.get("/api/admin-console/logs")
+
+        self.assertEqual(response.status_code, 200)
+        log_data = response.data["results"][0]
+        self.assertEqual(log_data["before"], {})
+        self.assertEqual(log_data["after"], {})
+        self.assertEqual(log_data["ip_address"], "")
+        self.assertEqual(log_data["user_agent"], "")
+
     def test_superadmin_log_list_includes_site_config_details(self):
         self.authenticate(self.superadmin)
         AdminOperationLog.objects.create(
@@ -282,5 +318,42 @@ class AdminConsoleUsersContentTests(TestCase):
         log_data = response.data["results"][0]
         self.assertEqual(log_data["before"], {"value": "Secret old"})
         self.assertEqual(log_data["after"], {"value": "Secret new"})
+        self.assertEqual(log_data["ip_address"], "127.0.0.1")
+        self.assertEqual(log_data["user_agent"], "Sensitive Browser")
+
+    def test_staff_manager_log_list_includes_staff_update_details(self):
+        User = get_user_model()
+        staff_manager = User.objects.create_user(
+            username="staff-manager@example.com",
+            email="staff-manager@example.com",
+            password="Password123!",
+            is_staff=True,
+        )
+        AdminProfile.objects.create(user=staff_manager, role=AdminProfile.Role.FINANCE)
+        original_permission = ROLE_PERMISSIONS[AdminProfile.Role.FINANCE]["can_manage_staff"]
+        ROLE_PERMISSIONS[AdminProfile.Role.FINANCE]["can_manage_staff"] = True
+        self.addCleanup(
+            lambda: ROLE_PERMISSIONS[AdminProfile.Role.FINANCE].__setitem__("can_manage_staff", original_permission)
+        )
+        self.authenticate(staff_manager)
+        AdminOperationLog.objects.create(
+            actor=self.superadmin,
+            actor_email=self.superadmin.email,
+            actor_role="superadmin",
+            action="user.update_staff",
+            target_type="User",
+            target_id=str(self.operator.id),
+            before={"role": "operator", "is_staff": True},
+            after={"role": "finance", "is_staff": True},
+            ip_address="127.0.0.1",
+            user_agent="Sensitive Browser",
+        )
+
+        response = self.client.get("/api/admin-console/logs")
+
+        self.assertEqual(response.status_code, 200)
+        log_data = response.data["results"][0]
+        self.assertEqual(log_data["before"], {"role": "operator", "is_staff": True})
+        self.assertEqual(log_data["after"], {"role": "finance", "is_staff": True})
         self.assertEqual(log_data["ip_address"], "127.0.0.1")
         self.assertEqual(log_data["user_agent"], "Sensitive Browser")

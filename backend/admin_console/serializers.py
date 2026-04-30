@@ -146,28 +146,35 @@ class AdminOperationLogSerializer(serializers.ModelSerializer):
             "created_at",
         ]
 
-    def _can_view_details(self):
+    def _can_view_details(self, obj):
         request = self.context.get("request")
         user = getattr(request, "user", None)
-        return get_admin_role(user) == AdminProfile.Role.SUPERADMIN or has_admin_permission(user, "can_manage_settings")
+        if get_admin_role(user) == AdminProfile.Role.SUPERADMIN:
+            return True
+        action = obj.action
+        if action == "site_config.update":
+            return has_admin_permission(user, "can_manage_settings")
+        if action == "user.update_staff":
+            return has_admin_permission(user, "can_manage_staff")
+        return has_admin_permission(user, "can_manage_settings") or has_admin_permission(user, "can_manage_staff")
 
     def get_before(self, obj):
-        if not self._can_view_details():
+        if not self._can_view_details(obj):
             return {}
         return obj.before
 
     def get_after(self, obj):
-        if not self._can_view_details():
+        if not self._can_view_details(obj):
             return {}
         return obj.after
 
     def get_ip_address(self, obj):
-        if not self._can_view_details():
+        if not self._can_view_details(obj):
             return ""
         return obj.ip_address
 
     def get_user_agent(self, obj):
-        if not self._can_view_details():
+        if not self._can_view_details(obj):
             return ""
         return obj.user_agent
 
