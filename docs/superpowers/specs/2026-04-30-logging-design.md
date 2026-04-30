@@ -1,108 +1,108 @@
-# Production Logging Design
+# 生产日志设计
 
-## Goal
+## 目标
 
-Add production-ready runtime logging to the AI card shop so operators can trace requests, diagnose failures, and inspect critical order and payment flows after deployment.
+给 AI 发卡商城增加一套适合生产环境使用的运行日志，方便上线后追踪请求、定位异常、排查订单和支付链路问题。
 
-The logging system must write to both Docker standard output and persistent log files. It must not add a runtime-log viewer to `/admin-console`; the existing admin operation log page remains focused on business audit records only.
+日志需要同时写到 Docker 标准输出和持久化日志文件。`/admin-console` 不新增“系统运行日志”页面；现有后台“操作日志”继续只展示管理员业务审计记录。
 
-## Current Project Context
+## 当前项目情况
 
-The project is a Django 5.2 + Django REST Framework backend with a Vue 3 + Vite frontend, deployed with Docker Compose, Nginx, Gunicorn, MySQL, and Redis.
+项目是 Django 5.2 + Django REST Framework 后端，Vue 3 + Vite 前端，使用 Docker Compose、Nginx、Gunicorn、MySQL、Redis 部署。
 
-Current logging is minimal:
+当前日志能力比较少：
 
-- `accounts.serializers` already uses a module logger for email verification failures.
-- `admin_console.AdminOperationLog` stores business audit records for privileged admin actions.
-- There is no Django `LOGGING` configuration.
-- There is no request ID, request/response logging middleware, slow request logging, or structured business event logging.
-- Docker Compose currently exposes backend logs through the container process output only.
+- `accounts.serializers` 已经有一个模块 logger，用于记录邮件验证码发送失败。
+- `admin_console.AdminOperationLog` 已经存储后台高权限操作的业务审计记录。
+- 还没有 Django `LOGGING` 配置。
+- 还没有请求 ID、请求/响应日志中间件、慢请求日志、统一异常日志、关键业务事件日志。
+- Docker Compose 目前主要依赖后端容器进程输出查看日志。
 
-The new work should extend runtime observability without replacing the existing admin audit model.
+本次工作要补的是“运行日志”和“业务链路排错日志”，不是替换现有的后台审计日志。
 
-## Chosen Approach
+## 选定方案
 
-Use structured application logging with both console and rotating file handlers:
+使用结构化应用日志，同时输出到控制台和轮转文件：
 
-- Standard output remains always enabled so `docker compose logs -f backend` works for real-time troubleshooting.
-- File logging is enabled by default in production and stores logs under a configurable directory.
-- Every HTTP request gets a request ID. If the client sends `X-Request-ID`, the backend reuses it after validation; otherwise the backend generates a new ID.
-- The response includes the effective `X-Request-ID`.
-- Request, response, exception, security, and critical business events are logged with consistent fields.
-- Sensitive data is explicitly redacted before logging.
+- 标准输出始终开启，保证 `docker compose logs -f backend` 可以实时看日志。
+- 文件日志在生产环境默认开启，写到可配置目录。
+- 每个 HTTP 请求都有一个 `request_id`。如果客户端带了安全的 `X-Request-ID`，后端沿用；否则后端生成新的 ID。
+- 响应头返回最终使用的 `X-Request-ID`。
+- 请求、响应、异常、安全事件、关键业务事件都使用一致字段记录。
+- 所有敏感数据在写日志前必须脱敏或排除。
 
-This approach gives useful production diagnostics for a single-server Docker deployment without introducing external systems such as ELK, Sentry, or OpenTelemetry.
+这个方案适合当前单机 Docker 部署，不引入 ELK、Sentry、OpenTelemetry 这类外部系统。
 
-## Non-Goals
+## 不做的范围
 
-This work does not include:
+本次不做：
 
-- A system runtime log viewer in `/admin-console`.
-- Shipping logs to a remote log platform.
-- User behavior analytics or frontend click tracking.
-- Replacing `AdminOperationLog`.
-- Logging card secret plaintext, passwords, verification codes, JWT tokens, private keys, or full sensitive payment payloads.
+- `/admin-console` 系统运行日志查看页面。
+- 日志远程上报平台。
+- 用户点击行为分析或前端埋点。
+- 替换 `AdminOperationLog`。
+- 记录卡密明文、密码、验证码、JWT token、私钥、支付密钥、完整敏感支付回调报文。
 
-## Log Destinations
+## 日志输出位置
 
-Runtime logs should be written to:
+运行日志写到这些位置：
 
-- `stdout`: all enabled application logs, formatted for container log collection.
-- `logs/app.log`: general application and business event logs at `INFO` and above.
-- `logs/error.log`: errors and exceptions at `ERROR` and above.
-- `logs/security.log`: security-relevant events at `WARNING` and above.
+- `stdout`：所有启用的应用日志，方便 Docker 收集和实时查看。
+- `logs/app.log`：普通应用日志和业务事件日志，级别 `INFO` 及以上。
+- `logs/error.log`：异常和错误日志，级别 `ERROR` 及以上。
+- `logs/security.log`：安全相关日志，级别 `WARNING` 及以上，例如验签失败。
 
-In Docker production, `logs/` should be mounted as a named volume so file logs survive container restarts. The backend container should still be usable without the mounted volume; if the directory exists and is writable, file logging works.
+Docker 生产部署时，`logs/` 需要挂载为命名 volume，让文件日志在容器重启后仍然保留。即使没有挂载 volume，容器也应该能正常启动；只要目录存在且可写，文件日志就生效。
 
-## Configuration
+## 配置项
 
-Add environment variables:
+新增环境变量：
 
-- `LOG_LEVEL`: default `INFO`.
-- `LOG_TO_FILE`: default `true` when `DEBUG=false`, default `false` when `DEBUG=true`.
-- `LOG_DIR`: default `BASE_DIR / "logs"` locally and `/app/logs` in Docker.
-- `LOG_MAX_BYTES`: default `10485760`.
-- `LOG_BACKUP_COUNT`: default `5`.
-- `SLOW_REQUEST_MS`: default `1000`.
+- `LOG_LEVEL`：默认 `INFO`。
+- `LOG_TO_FILE`：`DEBUG=false` 时默认 `true`，`DEBUG=true` 时默认 `false`。
+- `LOG_DIR`：本地默认 `BASE_DIR / "logs"`，Docker 里默认 `/app/logs`。
+- `LOG_MAX_BYTES`：默认 `10485760`。
+- `LOG_BACKUP_COUNT`：默认 `5`。
+- `SLOW_REQUEST_MS`：默认 `1000`。
 
-The `.env.example` and `.env.production.example` files should document these variables. Docker Compose should mount a backend log volume to the configured production path.
+`.env.example` 和 `.env.production.example` 要说明这些变量。Docker Compose 要给 backend 服务挂载日志 volume 到生产日志目录。
 
-## Request ID And Context
+## 请求 ID 和上下文
 
-Add a small request context module responsible for storing per-request values in Python `contextvars`:
+新增一个轻量请求上下文模块，用 Python `contextvars` 保存当前请求信息：
 
 - `request_id`
 - `user_id`
 - `user_email`
 - `client_ip`
 
-Add a logging filter that injects these values into each log record. Logs created outside a request should use empty or `-` values for request-scoped fields.
+新增 logging filter，把这些值自动注入每条日志。请求外产生的日志使用空值或 `-` 作为请求字段。
 
-The request middleware should:
+请求日志中间件负责：
 
-1. Read `X-Request-ID` from the incoming request.
-2. Accept it only if it is short and contains safe characters.
-3. Generate a new UUID-style request ID when the header is missing or unsafe.
-4. Store request context before calling the view.
-5. Log the request completion with method, path, status code, duration, user, IP, and response size when available.
-6. Log slow requests at `WARNING`.
-7. Log unhandled exceptions with stack trace at `ERROR`.
-8. Add `X-Request-ID` to the response.
-9. Clear request context after the response is built.
+1. 读取请求头 `X-Request-ID`。
+2. 只接受长度较短、字符安全的 ID。
+3. 请求头缺失或不安全时生成新的 UUID 风格 ID。
+4. 调用 view 前写入请求上下文。
+5. 请求结束时记录 method、path、status code、耗时、用户、IP、响应大小等信息。
+6. 慢请求使用 `WARNING` 级别记录。
+7. 未处理异常使用 `ERROR` 级别记录，并带堆栈。
+8. 响应头写入 `X-Request-ID`。
+9. 响应完成后清理请求上下文。
 
-Health checks at `/api/health` should not create noisy info logs. They may be logged at `DEBUG` or skipped by the request middleware.
+`/api/health` 健康检查不要产生大量 info 请求日志。可以跳过，也可以只打 `DEBUG`。
 
-## Log Format
+## 日志格式
 
-Use a consistent line format that remains readable in Docker logs:
+使用 Docker 日志里也容易阅读和搜索的行格式：
 
 ```text
 timestamp level logger request_id user_id client_ip event message key=value ...
 ```
 
-The implementation can use Python `logging.Formatter` and `extra={...}` fields rather than adding a JSON logging dependency. Field values should be stable and searchable.
+实现上优先使用 Python 标准库 `logging.Formatter` 和 `extra={...}` 字段，不额外引入 JSON 日志依赖。字段名要稳定，方便搜索。
 
-Required fields for request logs:
+请求日志必须包含：
 
 - `event`: `http_request`
 - `method`
@@ -113,106 +113,106 @@ Required fields for request logs:
 - `client_ip`
 - `request_id`
 
-Required fields for business event logs:
+业务事件日志必须包含：
 
 - `event`
-- entity identifiers such as `order_no`, `payment_id`, `provider`, or `product_id`
-- outcome such as `success`, `rejected`, `ignored`, or `failed`
-- reason or error class when useful and safe
+- 相关实体 ID，例如 `order_no`、`payment_id`、`provider`、`product_id`
+- 结果，例如 `success`、`rejected`、`ignored`、`failed`
+- 必要且安全的原因或异常类型
 
-## Sensitive Data Rules
+## 敏感数据规则
 
-Logs must not include:
+日志禁止记录：
 
-- Passwords.
-- Email verification codes.
-- JWT access or refresh tokens.
-- Card secret plaintext or decrypted delivery items.
-- `FERNET_KEY`, payment keys, private keys, or signatures.
-- Full raw payment callback payloads.
-- Authorization headers or cookies.
+- 密码。
+- 邮箱验证码。
+- JWT access token 或 refresh token。
+- 卡密明文或已解密的发货内容。
+- `FERNET_KEY`、支付密钥、私钥、签名。
+- 完整原始支付回调 payload。
+- `Authorization` 请求头或 Cookie。
 
-Payment callback logs may include safe identifiers:
+支付回调日志可以记录安全标识：
 
-- provider
-- `out_trade_no`
-- `trade_no`
-- amount
-- callback status
-- signature verification result
+- 支付渠道 provider。
+- `out_trade_no`。
+- `trade_no`。
+- 金额。
+- 回调状态。
+- 验签结果。
 
-If a payload is logged for troubleshooting, it must pass through a sanitizer that masks common sensitive keys such as `password`, `token`, `secret`, `key`, `sign`, `authorization`, `cookie`, `code`, `card`, `private`, `email`, `mobile`, and `phone`.
+如果为了排错确实需要记录 payload，必须先经过 sanitizer，屏蔽常见敏感键，例如 `password`、`token`、`secret`、`key`、`sign`、`authorization`、`cookie`、`code`、`card`、`private`、`email`、`mobile`、`phone`。
 
-## Logger Names
+## Logger 命名
 
-Use explicit logger names by domain:
+按业务域使用清晰 logger 名称：
 
-- `cardshop.request`: request lifecycle and slow requests.
-- `cardshop.orders`: order creation, duplicate pending orders, stock reservation, expiration, and delivery outcomes.
-- `cardshop.payments`: payment response creation and payment completion events.
-- `cardshop.payments.notify`: payment callback verification, ignored statuses, provider failures, and callback processing results.
-- `cardshop.security`: invalid signatures, suspicious request IDs, forbidden access patterns when explicitly handled.
-- Existing module loggers continue to work and inherit the same handlers.
+- `cardshop.request`：请求生命周期和慢请求。
+- `cardshop.orders`：订单创建、重复待支付订单、库存预留、订单过期、发货结果。
+- `cardshop.payments`：支付响应创建和支付完成事件。
+- `cardshop.payments.notify`：支付回调验签、忽略状态、渠道失败、回调处理结果。
+- `cardshop.security`：验签失败、可疑 request ID、显式处理的禁止访问场景。
+- 现有模块 logger 继续可用，并继承同一套 handlers。
 
-## Business Events
+## 业务事件
 
-Add logs at these points:
+这些位置需要补日志：
 
-- Order creation succeeds: log order number, product ID, quantity, amount, user ID when present, and expiration time.
-- Duplicate pending order is rejected: log existing order number, product ID, user ID or guest contact hash, and outcome `rejected`.
-- Stock is insufficient: log product ID, requested quantity, and outcome `rejected`.
-- Pending orders expire: log expired order count and released reserved card count.
-- Payment response is built: log provider, order number, amount, and mode.
-- Payment callback signature fails: log provider, safe order identifier if present, IP, and outcome `rejected` to `cardshop.security`.
-- Payment callback status is ignored: log provider, order number, provider status, and outcome `ignored`.
-- Payment completes successfully: log order number, provider, transaction ID, amount, quantity delivered, and outcome `success`.
-- Payment completion fails because of amount mismatch, expired order, invalid state, missing order, or stock inconsistency: log safe identifiers and reason.
-- Email verification send failure: keep the existing exception log and ensure request ID context is included automatically.
+- 订单创建成功：记录订单号、商品 ID、数量、金额、用户 ID、过期时间。
+- 重复待支付订单被拒绝：记录已有订单号、商品 ID、用户 ID 或游客联系方式哈希，结果为 `rejected`。
+- 库存不足：记录商品 ID、请求数量，结果为 `rejected`。
+- 待支付订单过期：记录过期订单数量和释放的预留卡数量。
+- 支付响应创建：记录 provider、订单号、金额、mode。
+- 支付回调验签失败：记录 provider、安全订单标识、IP，结果为 `rejected`，写入 `cardshop.security`。
+- 支付回调状态被忽略：记录 provider、订单号、渠道状态，结果为 `ignored`。
+- 支付成功完成：记录订单号、provider、交易号、金额、发货数量，结果为 `success`。
+- 支付失败：金额不一致、订单过期、订单状态不可支付、订单不存在、库存异常等场景记录安全标识和原因。
+- 邮件验证码发送失败：保留现有异常日志，并自动带上 request ID。
 
-Guest contact values should not be logged directly. If linking guest activity is needed, log a short deterministic hash derived from the normalized contact and `SECRET_KEY`.
+游客联系方式不能直接写入日志。如果需要关联游客行为，使用标准化联系方式加 `SECRET_KEY` 生成短哈希后记录。
 
-## Admin Audit Boundary
+## 后台审计边界
 
-The existing `AdminOperationLog` remains the source of truth for admin-visible business audit records.
+现有 `AdminOperationLog` 继续作为后台可见的业务审计来源。
 
-Runtime logs may mention that a privileged operation failed or completed, but `/admin-console/logs` continues to return only `AdminOperationLog` records. Runtime logs can contain stack traces and provider details, so they must stay outside the admin UI.
+运行日志可以记录某个高权限操作成功或失败，但 `/admin-console/logs` 仍然只返回 `AdminOperationLog`。运行日志可能包含异常堆栈和支付渠道细节，不能暴露在后台 UI 里。
 
-## Deployment Notes
+## 部署说明
 
-Docker Compose should add a backend log volume:
+Docker Compose 要新增 backend 日志 volume：
 
 ```yaml
 backend_logs:
 ```
 
-and mount it into the backend service at `/app/logs`.
+并挂载到 backend 服务的 `/app/logs`。
 
-The backend Docker command can continue to run migrations, seed data, collect static files, and start Gunicorn. Gunicorn access and error logs should be directed to stdout/stderr so container logs remain complete.
+backend Docker 启动命令可以继续执行 migrate、seed、collectstatic，然后启动 Gunicorn。Gunicorn access log 和 error log 要输出到 stdout/stderr，确保容器日志完整。
 
-README maintenance docs should mention:
+README 维护文档要补充：
 
-- `docker compose logs -f backend` for live logs.
-- `docker compose exec backend tail -f /app/logs/app.log` for persisted application logs.
-- `docker compose exec backend tail -f /app/logs/error.log` for exceptions.
-- `docker compose exec backend tail -f /app/logs/security.log` for signature and security warnings.
-- Use `X-Request-ID` from API responses to correlate support reports with backend logs.
+- 用 `docker compose logs -f backend` 查看实时日志。
+- 用 `docker compose exec backend tail -f /app/logs/app.log` 查看持久化应用日志。
+- 用 `docker compose exec backend tail -f /app/logs/error.log` 查看异常日志。
+- 用 `docker compose exec backend tail -f /app/logs/security.log` 查看验签和安全警告。
+- 用户反馈接口问题时，用响应头里的 `X-Request-ID` 对应后端日志。
 
-## Testing Strategy
+## 测试策略
 
-Backend tests should cover:
+后端测试要覆盖：
 
-- Middleware generates `X-Request-ID` when the request does not provide one.
-- Middleware preserves a valid incoming `X-Request-ID`.
-- Middleware rejects unsafe incoming request IDs and generates a replacement.
-- Request logs include status code and duration.
-- Unhandled exceptions include the active request ID in error logs.
-- `/api/health` does not produce noisy info-level request logs.
-- Payment callback invalid signatures write a warning to `cardshop.security`.
-- Payment success writes an info event to `cardshop.payments`.
-- Sanitization masks sensitive fields before they can be logged.
-- Guest contact hashing does not expose raw contact values.
+- 没有传入 `X-Request-ID` 时，中间件会生成并返回一个 ID。
+- 传入合法 `X-Request-ID` 时，中间件会沿用。
+- 传入不安全 `X-Request-ID` 时，中间件会丢弃并生成新 ID。
+- 请求日志包含状态码和耗时。
+- 未处理异常日志包含当前 request ID。
+- `/api/health` 不产生大量 info 请求日志。
+- 支付回调验签失败会向 `cardshop.security` 写 warning。
+- 支付成功会向 `cardshop.payments` 写 info 业务事件。
+- sanitizer 会屏蔽敏感字段。
+- 游客联系方式哈希不会暴露原始联系方式。
 
-Verification commands:
+验证命令：
 
 ```powershell
 cd backend
@@ -220,7 +220,7 @@ uv run pytest -q
 uv run python manage.py check
 ```
 
-Deployment verification:
+部署验证：
 
 ```bash
 docker compose up -d --build
@@ -229,13 +229,13 @@ docker compose exec backend ls -la /app/logs
 docker compose exec backend tail -n 50 /app/logs/app.log
 ```
 
-## Rollout Plan
+## 实施顺序
 
-The implementation should land in focused steps:
+实现时按这些步骤推进：
 
-1. Add request context, logging filter, sanitizer, and tests.
-2. Add request logging middleware and tests.
-3. Add Django logging configuration, environment variables, Docker volume, and documentation.
-4. Add order and payment business event logs with tests.
-5. Run the full backend test suite and Django system checks.
+1. 增加请求上下文、logging filter、sanitizer 和测试。
+2. 增加请求日志中间件和测试。
+3. 增加 Django 日志配置、环境变量、Docker volume 和文档。
+4. 增加订单与支付业务事件日志和测试。
+5. 跑完整后端测试和 Django system check。
 
