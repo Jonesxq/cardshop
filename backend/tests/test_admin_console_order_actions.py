@@ -43,9 +43,16 @@ class AdminConsoleOrderActionTests(TestCase):
     def authenticate(self, user):
         self.client.force_authenticate(user)
 
+    def get_log(self, action):
+        return AdminOperationLog.objects.get(action=action)
+
+    def statuses_by_id(self, rows):
+        return {row["id"]: row["status"] for row in rows}
+
     def test_mark_paid_delivers_order_and_writes_log(self):
         self.authenticate(self.operator)
         order = create_order(product_id=self.product.id, quantity=1, contact="buyer@example.com")
+        reserved_card = CardSecret.objects.get(reserved_order=order)
 
         response = self.client.post(
             f"/api/admin-console/orders/{order.id}/mark-paid",
@@ -57,11 +64,16 @@ class AdminConsoleOrderActionTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(order.status, Order.Status.PAID)
         self.assertEqual(order.delivery_items, ["CARD-001"])
-        self.assertEqual(AdminOperationLog.objects.filter(action="order.mark_paid").count(), 1)
+        log = self.get_log("order.mark_paid")
+        self.assertEqual(self.statuses_by_id(log.before["cards"])[reserved_card.id], CardSecret.Status.RESERVED)
+        self.assertEqual(self.statuses_by_id(log.after["cards"])[reserved_card.id], CardSecret.Status.SOLD)
+        self.assertEqual(log.after["payments"][0]["status"], PaymentTransaction.Status.SUCCESS)
+        self.assertEqual(log.after["payments"][0]["provider"], "admin_console")
 
     def test_cancel_pending_order_releases_reserved_stock(self):
         self.authenticate(self.operator)
         order = create_order(product_id=self.product.id, quantity=1, contact="buyer@example.com")
+        reserved_card = CardSecret.objects.get(reserved_order=order)
 
         response = self.client.post(
             f"/api/admin-console/orders/{order.id}/cancel",
@@ -73,10 +85,14 @@ class AdminConsoleOrderActionTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(order.status, Order.Status.CANCELLED)
         self.assertEqual(CardSecret.objects.filter(status=CardSecret.Status.AVAILABLE).count(), 3)
+        log = self.get_log("order.cancel")
+        self.assertEqual(log.after["status"], Order.Status.CANCELLED)
+        self.assertEqual(self.statuses_by_id(log.after["cards"])[reserved_card.id], CardSecret.Status.AVAILABLE)
 
     def test_release_stock_expires_pending_order_and_releases_cards(self):
         self.authenticate(self.operator)
         order = create_order(product_id=self.product.id, quantity=1, contact="buyer@example.com")
+        reserved_card = CardSecret.objects.get(reserved_order=order)
 
         response = self.client.post(
             f"/api/admin-console/orders/{order.id}/release-stock",
@@ -88,6 +104,9 @@ class AdminConsoleOrderActionTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(order.status, Order.Status.EXPIRED)
         self.assertEqual(CardSecret.objects.filter(status=CardSecret.Status.AVAILABLE).count(), 3)
+        log = self.get_log("order.release_stock")
+        self.assertEqual(log.after["status"], Order.Status.EXPIRED)
+        self.assertEqual(self.statuses_by_id(log.after["cards"])[reserved_card.id], CardSecret.Status.AVAILABLE)
 
     def test_redeliver_paid_order_does_not_change_stock(self):
         self.authenticate(self.operator)
@@ -107,6 +126,9 @@ class AdminConsoleOrderActionTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["delivery_items"], ["CARD-001"])
         self.assertEqual(CardSecret.objects.filter(status=CardSecret.Status.SOLD).count(), 1)
+        log = self.get_log("order.redeliver")
+        self.assertEqual(log.before["delivery_items"], ["CARD-001"])
+        self.assertEqual(log.after["delivery_items"], ["CARD-001"])
 
     def test_replace_card_voids_old_card_and_delivers_new_card(self):
         self.authenticate(self.operator)
@@ -127,7 +149,14 @@ class AdminConsoleOrderActionTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(order.delivery_items, ["CARD-002"])
         self.assertEqual(CardSecret.objects.filter(status=CardSecret.Status.VOID).count(), 1)
-        self.assertEqual(AdminOperationLog.objects.filter(action="order.replace_card").count(), 1)
+        log = self.get_log("order.replace_card")
+        before_cards = self.statuses_by_id(log.before["cards"])
+        after_cards = self.statuses_by_id(log.after["cards"])
+        old_card_id = CardSecret.objects.get(status=CardSecret.Status.VOID).id
+        new_card_id = CardSecret.objects.get(status=CardSecret.Status.SOLD).id
+        self.assertEqual(before_cards[old_card_id], CardSecret.Status.SOLD)
+        self.assertEqual(after_cards[old_card_id], CardSecret.Status.VOID)
+        self.assertEqual(after_cards[new_card_id], CardSecret.Status.SOLD)
 
     def test_finance_cannot_replace_card(self):
         self.authenticate(self.finance)
@@ -164,7 +193,11 @@ class AdminConsoleOrderActionTests(TestCase):
         payment.refresh_from_db()
         self.assertEqual(payment.status, PaymentTransaction.Status.IGNORED)
         self.assertIn("Reviewed mismatch", payment.note)
-        self.assertEqual(AdminOperationLog.objects.filter(action="payment.resolve").count(), 1)
+        log = self.get_log("payment.resolve")
+        self.assertEqual(log.before["status"], PaymentTransaction.Status.FAILED)
+        self.assertEqual(log.after["status"], PaymentTransaction.Status.IGNORED)
+        self.assertEqual(log.before["order"]["status"], Order.Status.PENDING)
+        self.assertEqual(log.after["order"]["status"], Order.Status.PENDING)
 
     def test_reason_is_required_for_order_actions(self):
         self.authenticate(self.operator)
