@@ -33,6 +33,10 @@ def payment_row_snapshot(payment):
     }
 
 
+def redacted_delivery_items(order):
+    return ["***" for _item in order.delivery_items or []]
+
+
 def order_snapshot(order, *, card_ids=None, include_payments=False):
     card_filter = Q(reserved_order=order)
     if card_ids:
@@ -46,7 +50,7 @@ def order_snapshot(order, *, card_ids=None, include_payments=False):
         "amount": str(order.amount),
         "paid_at": _isoformat(order.paid_at),
         "delivered_at": _isoformat(order.delivered_at),
-        "delivery_items": list(order.delivery_items or []),
+        "delivery_items": redacted_delivery_items(order),
         "cards": [card_snapshot(card) for card in cards],
         "payments": [
             payment_row_snapshot(payment)
@@ -82,6 +86,8 @@ def _release_reserved_cards(order):
 def admin_mark_paid(order_id):
     with transaction.atomic():
         order = Order.objects.select_for_update().select_related("product").get(id=order_id)
+        if order.status != Order.Status.PENDING:
+            raise ValidationError("Only pending orders can be marked paid.")
         before_card_ids = list(
             CardSecret.objects.select_for_update()
             .filter(reserved_order=order, status=CardSecret.Status.RESERVED)
@@ -163,6 +169,8 @@ def admin_replace_card(order_id):
                 status=CardSecret.Status.SOLD,
             )
         )
+        if len(old_cards) != order.quantity:
+            raise ValidationError("Current sold card linkage does not match order quantity.")
         new_cards = list(
             CardSecret.objects.select_for_update()
             .filter(product=order.product, status=CardSecret.Status.AVAILABLE)

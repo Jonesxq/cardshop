@@ -327,6 +327,8 @@ class PaymentResolveView(RequirePermissionMixin, APIView):
         serializer = ReasonSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         reason = serializer.validated_data["reason"]
+        if len(reason) > PaymentTransaction._meta.get_field("note").max_length:
+            raise ValidationError({"reason": "Ensure this field has no more than 255 characters."})
         try:
             with transaction.atomic():
                 payment, before, after = resolve_payment_exception(payment_id, reason)
