@@ -44,6 +44,7 @@ pnpm-debug.log*
 
 # Docker/local tooling
 .docker/
+.worktrees/
 
 # Editors and OS
 .vscode/
