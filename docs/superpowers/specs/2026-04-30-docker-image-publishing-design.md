@@ -1,89 +1,89 @@
-# Docker Image Publishing Design
+# Docker 镜像发布设计
 
-## Goal
+## 目标
 
-Make the project runnable by other users through prebuilt Docker images. A user should be able to copy the production environment template, set required secrets and host values, then run `docker compose up -d` without building application images locally.
+让其他用户可以通过预构建 Docker 镜像直接运行本项目。用户只需要复制生产环境变量模板、填写必要的密钥和域名/IP 配置，然后执行 `docker compose up -d`，不需要在本地构建应用镜像。
 
-## Chosen Approach
+## 选定方案
 
-Use a production-style multi-container deployment:
+采用偏生产部署的多容器方案：
 
-- Publish a backend application image.
-- Publish a frontend Nginx image containing the built Vue app and reverse proxy configuration.
-- Continue using standard MySQL and Redis images as dependency services.
-- Use Docker Compose as the runtime contract that wires the four services together.
+- 发布一个后端应用镜像。
+- 发布一个前端 Nginx 镜像，镜像内包含已构建好的 Vue 应用和反向代理配置。
+- MySQL 和 Redis 继续使用标准镜像作为依赖服务。
+- 使用 Docker Compose 作为运行约定，负责把四个服务连接起来。
 
-This keeps persistent services out of the application images, which makes database backup, upgrades, and operational recovery clearer.
+这样不会把数据库这类持久化服务塞进应用镜像里，后续备份、升级和故障恢复会更清楚。
 
-## Image Model
+## 镜像模型
 
-The Compose file will reference application images through environment variables with practical defaults:
+Compose 文件通过环境变量引用应用镜像，并提供可用的默认值：
 
 - `CARDSHOP_BACKEND_IMAGE`
 - `CARDSHOP_FRONTEND_IMAGE`
 
-Both values will support tags, so the owner can publish versioned images such as `ghcr.io/<owner>/cardshop-backend:1.0.0` and `ghcr.io/<owner>/cardshop-frontend:1.0.0`. A separate build override file will preserve local build behavior for the project owner.
+这两个变量都支持带 tag 的镜像名，所以项目维护者可以发布类似 `ghcr.io/<owner>/cardshop-backend:1.0.0` 和 `ghcr.io/<owner>/cardshop-frontend:1.0.0` 的版本化镜像。项目中会额外保留一个本地构建覆盖文件，方便维护者继续在本机构建和验证。
 
-## Runtime Components
+## 运行组件
 
 ### MySQL
 
-MySQL remains a Compose-managed service using a standard image. Data persists in `mysql_data`.
+MySQL 继续作为 Compose 管理的独立服务运行，使用标准镜像。数据持久化到 `mysql_data`。
 
 ### Redis
 
-Redis remains a Compose-managed service using a standard image. Data persists in `redis_data`.
+Redis 继续作为 Compose 管理的独立服务运行，使用标准镜像。数据持久化到 `redis_data`。
 
-### Backend
+### 后端
 
-The backend service pulls the published backend image. It reads `.env`, connects to Compose service names `mysql` and `redis`, runs migrations, seeds default demo/admin data, collects static files, and starts Gunicorn.
+后端服务拉取已发布的后端镜像。容器启动时读取 `.env`，连接 Compose 服务名 `mysql` 和 `redis`，执行数据库迁移、写入默认演示/管理员数据、收集静态文件，然后启动 Gunicorn。
 
-### Frontend
+### 前端
 
-The frontend service pulls the published frontend image. It serves the built Vue application with Nginx, proxies `/api/` and `/admin/` to the backend, and serves collected Django static files from the shared `static_data` volume.
+前端服务拉取已发布的前端镜像。它通过 Nginx 提供已构建好的 Vue 应用，把 `/api/` 和 `/admin/` 反向代理到后端，并通过共享的 `static_data` volume 提供 Django 收集后的静态文件。
 
-## Compose Files
+## Compose 文件
 
-The main `docker-compose.yml` will be optimized for consumers:
+主 `docker-compose.yml` 面向使用者优化：
 
-- use `image:` for backend and frontend;
-- keep MySQL and Redis unchanged;
-- preserve health checks, volumes, and port mapping;
-- avoid local build requirements.
+- 后端和前端使用 `image:`；
+- MySQL 和 Redis 保持现有方式；
+- 保留健康检查、数据卷和端口映射；
+- 不要求使用者本地构建应用镜像。
 
-A new `docker-compose.build.yml` will be added for maintainers:
+新增 `docker-compose.build.yml` 面向维护者：
 
-- restore the existing backend build configuration;
-- restore the existing frontend build configuration;
-- allow local validation with `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
+- 恢复现有后端构建配置；
+- 恢复现有前端构建配置；
+- 支持用 `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build` 做本地构建验证。
 
-## Configuration
+## 配置
 
-The existing `.env.production.example` remains the primary runtime template. It will gain optional image variables so consumers can point Compose at the image registry and tag they should use.
+现有 `.env.production.example` 继续作为主要运行模板。它会新增可选的镜像变量，让使用者可以指定需要拉取的镜像仓库和 tag。
 
-Required deployment values remain:
+部署时仍然需要重点配置：
 
 - `SECRET_KEY`
 - `ALLOWED_HOSTS`
 - `CSRF_TRUSTED_ORIGINS`
 - `CORS_ALLOWED_ORIGINS`
-- database passwords
+- 数据库密码
 - `SITE_URL`
-- payment and email settings when those features are enabled
+- 启用支付和邮件功能时需要填写对应配置
 
-## Documentation
+## 文档
 
-The README will document two flows:
+README 会补充两个流程：
 
-1. Consumer deployment: copy `.env.production.example`, set image names and required settings, run `docker compose up -d`.
-2. Maintainer publishing: build backend/frontend images, tag them, push them to a registry, and optionally test the exact published images locally.
+1. 使用者部署：复制 `.env.production.example`，设置镜像名和必要配置，然后执行 `docker compose up -d`。
+2. 维护者发布：构建后端/前端镜像，打 tag，推送到镜像仓库，并可选地在本地验证已发布镜像。
 
-## Testing
+## 验证
 
-Implementation verification should include:
+实现完成后需要验证：
 
-- Compose configuration rendering with `docker compose config`.
-- Local build override rendering with `docker compose -f docker-compose.yml -f docker-compose.build.yml config`.
-- Image build validation for backend and frontend if Docker is available.
+- 使用 `docker compose config` 检查主 Compose 配置可以正常渲染。
+- 使用 `docker compose -f docker-compose.yml -f docker-compose.build.yml config` 检查本地构建覆盖配置可以正常渲染。
+- 如果当前环境可用 Docker，验证后端和前端镜像可以构建成功。
 
-If a full container startup is practical in the current environment, verify `http://127.0.0.1:<HTTP_PORT>/api/health` returns `{"status":"ok"}` after Compose startup.
+如果当前环境适合完整启动容器，则启动 Compose 后确认 `http://127.0.0.1:<HTTP_PORT>/api/health` 返回 `{"status":"ok"}`。
