@@ -3,6 +3,8 @@ from django.urls import path
 from .views import (
     AdminDashboardView,
     AdminMeView,
+    CardImportCommitView,
+    CardImportPreviewView,
     CardListView,
     CategoryDetailView,
     CategoryListCreateView,
@@ -22,6 +24,8 @@ urlpatterns = [
     path("products/<int:pk>", ProductDetailView.as_view()),
     path("categories", CategoryListCreateView.as_view()),
     path("categories/<int:pk>", CategoryDetailView.as_view()),
+    path("cards/import/preview", CardImportPreviewView.as_view()),
+    path("cards/import/commit", CardImportCommitView.as_view()),
     path("cards", CardListView.as_view()),
     path("orders", OrderListView.as_view()),
     path("orders/<int:pk>", OrderDetailView.as_view()),

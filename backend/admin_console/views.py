@@ -1,5 +1,7 @@
 from django.db.models import Count, Q
+from django.shortcuts import get_object_or_404
 from rest_framework import generics
+from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
@@ -8,7 +10,9 @@ from rest_framework.views import APIView
 from orders.models import Order, PaymentTransaction
 from shop.models import CardSecret, Category, Product
 
+from .audit import record_operation
 from .dashboard import get_dashboard_payload
+from .inventory import build_import_preview, commit_card_import, without_valid_values
 from .permissions import IsAdminConsoleUser, has_admin_permission
 from .serializers import (
     CardAdminSerializer,
@@ -50,6 +54,12 @@ class RequirePermissionMixin:
         super().check_permissions(request)
         if self.required_permission and not has_admin_permission(request.user, self.required_permission):
             raise PermissionDenied()
+
+
+class CardImportRequestSerializer(serializers.Serializer):
+    product_id = serializers.IntegerField(min_value=1)
+    cards = serializers.CharField(allow_blank=True, trim_whitespace=False)
+    reason = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
 
 
 class AdminMeView(APIView):
@@ -130,6 +140,43 @@ class CardListView(RequirePermissionMixin, generics.ListAPIView):
         if status:
             queryset = queryset.filter(status=status)
         return queryset
+
+
+class CardImportPreviewView(RequirePermissionMixin, APIView):
+    required_permission = "can_manage_inventory"
+
+    def post(self, request):
+        serializer = CardImportRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        product = get_object_or_404(Product, id=serializer.validated_data["product_id"])
+        preview = build_import_preview(product, serializer.validated_data["cards"])
+        return Response(without_valid_values(preview))
+
+
+class CardImportCommitView(RequirePermissionMixin, APIView):
+    required_permission = "can_manage_inventory"
+
+    def post(self, request):
+        serializer = CardImportRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reason = serializer.validated_data.get("reason", "").strip()
+        if not reason:
+            raise ValidationError({"reason": "This field may not be blank."})
+
+        get_object_or_404(Product, id=serializer.validated_data["product_id"])
+        product, result = commit_card_import(
+            serializer.validated_data["product_id"],
+            serializer.validated_data["cards"],
+        )
+        log = record_operation(
+            request=request,
+            action="inventory.import",
+            target=product,
+            reason=reason,
+            after=result,
+        )
+        result["log_id"] = log.id
+        return Response(result)
 
 
 class OrderListView(RequirePermissionMixin, generics.ListAPIView):
