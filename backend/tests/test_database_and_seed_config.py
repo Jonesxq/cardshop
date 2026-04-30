@@ -1,5 +1,7 @@
 from django.core.management import call_command
+from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
+from rest_framework.test import APIClient
 
 from config import settings as project_settings
 from shop.models import Announcement, Category, Product, SiteConfig
@@ -17,6 +19,10 @@ class DatabaseDefaultConfigTests(SimpleTestCase):
 
 
 class SeedDemoEncodingTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.User = get_user_model()
+
     def test_seed_demo_writes_readable_chinese_demo_data(self):
         call_command("seed_demo", verbosity=0)
 
@@ -44,3 +50,37 @@ class SeedDemoEncodingTests(TestCase):
         self.assertNotIn("鍙", seeded_text)
         self.assertNotIn("锛", seeded_text)
         self.assertNotIn("?", seeded_text)
+
+    def test_seed_demo_creates_permanent_admin_login(self):
+        call_command("seed_demo", verbosity=0)
+
+        user = self.User.objects.get(username="xqwd528467")
+        self.assertEqual(user.email, "xqwd528467@example.local")
+        self.assertEqual(user.is_staff, True)
+        self.assertEqual(user.is_superuser, True)
+        self.assertTrue(user.check_password("528467"))
+
+        response = self.client.post(
+            "/api/auth/login",
+            {"email": "xqwd528467", "password": "528467"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("access", response.data["tokens"])
+
+    def test_seed_demo_refreshes_existing_demo_admin_password(self):
+        existing = self.User.objects.create_user(
+            username="admin@example.com",
+            email="admin@example.com",
+            password="OldPassword123!",
+            is_staff=False,
+            is_superuser=False,
+        )
+
+        call_command("seed_demo", verbosity=0)
+
+        existing.refresh_from_db()
+        self.assertEqual(existing.is_staff, True)
+        self.assertEqual(existing.is_superuser, True)
+        self.assertTrue(existing.check_password("Admin12345!"))

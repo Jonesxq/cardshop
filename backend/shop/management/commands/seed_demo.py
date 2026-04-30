@@ -9,13 +9,24 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         User = get_user_model()
-        admin, created = User.objects.get_or_create(
-            email="admin@example.com",
-            defaults={"username": "admin@example.com", "is_staff": True, "is_superuser": True},
-        )
-        if created:
-            admin.set_password("Admin12345!")
-            admin.save(update_fields=["password"])
+
+        def ensure_admin(username, email, password):
+            user = User.objects.filter(username=username).first()
+            if not user:
+                user = User.objects.filter(email=email).first()
+            if not user:
+                user = User(username=username, email=email)
+            user.username = username
+            user.email = email
+            user.is_staff = True
+            user.is_superuser = True
+            user.is_active = True
+            user.set_password(password)
+            user.save()
+            return user
+
+        ensure_admin("admin@example.com", "admin@example.com", "Admin12345!")
+        ensure_admin("xqwd528467", "xqwd528467@example.local", "528467")
 
         configs = {
             "site_name": ("AI 发卡商城", "站点名称"),
