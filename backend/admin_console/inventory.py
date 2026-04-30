@@ -1,10 +1,16 @@
 from dataclasses import dataclass
 
+from cryptography.fernet import InvalidToken
 from django.db import transaction
+from django.shortcuts import get_object_or_404
 
 from shop.models import CardSecret, Product
 
 from .audit import record_operation
+
+
+MAX_IMPORT_ROWS = 5000
+MAX_IMPORT_CHARS = 200_000
 
 
 @dataclass(frozen=True)
@@ -20,7 +26,7 @@ def parse_card_text(text):
     same_batch_duplicate_count = 0
     seen = set()
 
-    for index, raw_value in enumerate((text or "").split("\n"), start=1):
+    for index, raw_value in enumerate((text or "").splitlines(), start=1):
         value = raw_value.strip()
         if not value:
             empty_count += 1
@@ -38,7 +44,10 @@ def parse_card_text(text):
 def _existing_card_values(product):
     values = set()
     for card in CardSecret.objects.filter(product=product):
-        values.add(card.get_secret())
+        try:
+            values.add(card.get_secret())
+        except (InvalidToken, UnicodeDecodeError):
+            continue
     return values
 
 
@@ -91,7 +100,7 @@ def without_valid_values(preview):
 
 def commit_card_import(*, product_id, cards, request, reason):
     with transaction.atomic():
-        product = Product.objects.select_for_update().get(id=product_id)
+        product = get_object_or_404(Product.objects.select_for_update(), id=product_id)
         preview = build_import_preview(product, cards)
         card_objects = []
         for value in preview["valid_values"]:

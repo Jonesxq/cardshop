@@ -70,6 +70,59 @@ class AdminConsoleInventoryImportTests(TestCase):
         self.assertIn("same_batch_duplicate", rejected_statuses)
         self.assertIn("existing_duplicate", rejected_statuses)
 
+    def test_preview_skips_corrupt_existing_cards_during_duplicate_detection(self):
+        CardSecret.objects.create(product=self.product, encrypted_secret="not-a-fernet-token")
+        self.authenticate(self.operator)
+
+        response = self.client.post(
+            "/api/admin-console/cards/import/preview",
+            {"product_id": self.product.id, "cards": "NEW-005"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["valid_count"], 1)
+        self.assertEqual(response.data["existing_duplicate_count"], 0)
+
+    def test_preview_does_not_count_trailing_newline_as_empty_row(self):
+        self.authenticate(self.operator)
+
+        response = self.client.post(
+            "/api/admin-console/cards/import/preview",
+            {"product_id": self.product.id, "cards": "NEW-001\n"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["total_rows"], 1)
+        self.assertEqual(response.data["empty_count"], 0)
+        self.assertEqual(response.data["valid_count"], 1)
+
+    def test_preview_rejects_more_than_max_import_rows(self):
+        self.authenticate(self.operator)
+        cards = "\n".join(f"NEW-{index:04d}" for index in range(5001))
+
+        response = self.client.post(
+            "/api/admin-console/cards/import/preview",
+            {"product_id": self.product.id, "cards": cards},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("cards", response.data)
+
+    def test_preview_rejects_more_than_max_import_chars(self):
+        self.authenticate(self.operator)
+
+        response = self.client.post(
+            "/api/admin-console/cards/import/preview",
+            {"product_id": self.product.id, "cards": "A" * 200001},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("cards", response.data)
+
     def test_commit_creates_cards_skips_existing_duplicate_and_writes_audit_log(self):
         self.authenticate(self.operator)
 
@@ -117,6 +170,22 @@ class AdminConsoleInventoryImportTests(TestCase):
         self.assertIn("reason", response.data)
         self.assertEqual(self.card_values(), {"EXISTING-001"})
         self.assertEqual(AdminOperationLog.objects.count(), 0)
+
+    def test_commit_missing_product_returns_404(self):
+        self.authenticate(self.operator)
+
+        response = self.client.post(
+            "/api/admin-console/cards/import/commit",
+            {
+                "product_id": self.product.id + 1000,
+                "cards": "NEW-022",
+                "reason": "Restock missing product",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.card_values(), {"EXISTING-001"})
 
     def test_commit_rolls_back_card_creation_when_audit_log_fails(self):
         self.authenticate(self.operator)

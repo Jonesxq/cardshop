@@ -11,7 +11,13 @@ from orders.models import Order, PaymentTransaction
 from shop.models import CardSecret, Category, Product
 
 from .dashboard import get_dashboard_payload
-from .inventory import build_import_preview, commit_card_import, without_valid_values
+from .inventory import (
+    MAX_IMPORT_CHARS,
+    MAX_IMPORT_ROWS,
+    build_import_preview,
+    commit_card_import,
+    without_valid_values,
+)
 from .permissions import IsAdminConsoleUser, has_admin_permission
 from .serializers import (
     CardAdminSerializer,
@@ -59,6 +65,13 @@ class CardImportRequestSerializer(serializers.Serializer):
     product_id = serializers.IntegerField(min_value=1)
     cards = serializers.CharField(allow_blank=True, trim_whitespace=False)
     reason = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
+
+    def validate_cards(self, value):
+        if len(value) > MAX_IMPORT_CHARS:
+            raise serializers.ValidationError(f"Ensure this field has no more than {MAX_IMPORT_CHARS} characters.")
+        if len(value.splitlines()) > MAX_IMPORT_ROWS:
+            raise serializers.ValidationError(f"Ensure this import has no more than {MAX_IMPORT_ROWS} rows.")
+        return value
 
 
 class AdminMeView(APIView):
@@ -162,7 +175,6 @@ class CardImportCommitView(RequirePermissionMixin, APIView):
         if not reason:
             raise ValidationError({"reason": "This field may not be blank."})
 
-        get_object_or_404(Product, id=serializer.validated_data["product_id"])
         _, result = commit_card_import(
             product_id=serializer.validated_data["product_id"],
             cards=serializer.validated_data["cards"],
