@@ -535,6 +535,14 @@ pre {
   min-width: 0;
 }
 
+.admin-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .admin-user strong {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -703,12 +711,15 @@ pre {
 
 @media (max-width: 900px) {
   .admin-console {
+    display: block;
     grid-template-columns: 1fr;
   }
 
   .admin-sidebar {
     position: static;
     height: auto;
+    min-height: 0;
+    align-self: start;
     padding-bottom: 10px;
     border-right: 0;
     border-bottom: 1px solid #dbe3ee;
@@ -750,6 +761,7 @@ pre {
   }
 
   .admin-head-actions,
+  .admin-header-actions,
   .admin-actions,
   .admin-toolbar,
   .admin-toolbar .el-input,
