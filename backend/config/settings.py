@@ -51,6 +51,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "config.middleware.RequestLoggingMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -197,3 +198,89 @@ ALIPAY_GATEWAY_URL = os.getenv(
 ALIPAY_NOTIFY_URL = os.getenv("ALIPAY_NOTIFY_URL", "")
 ALIPAY_RETURN_URL = os.getenv("ALIPAY_RETURN_URL", "")
 ORDER_RESERVE_MINUTES = int(os.getenv("ORDER_RESERVE_MINUTES", "15"))
+SLOW_REQUEST_MS = int(os.getenv("SLOW_REQUEST_MS", "1000"))
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_TO_FILE = env_bool("LOG_TO_FILE", not DEBUG)
+LOG_DIR = os.getenv("LOG_DIR", str(BASE_DIR / "logs"))
+LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", "10485760"))
+LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", "5"))
+
+if LOG_TO_FILE:
+    Path(LOG_DIR).mkdir(parents=True, exist_ok=True)
+
+
+def _file_handler(filename, level):
+    if not LOG_TO_FILE:
+        return {"class": "logging.NullHandler"}
+    return {
+        "class": "logging.handlers.RotatingFileHandler",
+        "level": level,
+        "formatter": "standard",
+        "filters": ["request_context"],
+        "filename": str(Path(LOG_DIR) / filename),
+        "maxBytes": LOG_MAX_BYTES,
+        "backupCount": LOG_BACKUP_COUNT,
+        "encoding": "utf-8",
+    }
+
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "filters": {
+        "request_context": {
+            "()": "config.logging_context.RequestContextFilter",
+        },
+    },
+    "formatters": {
+        "standard": {
+            "format": (
+                "%(asctime)s %(levelname)s %(name)s request_id=%(request_id)s "
+                "user_id=%(user_id)s client_ip=%(client_ip)s %(message)s"
+            )
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "level": LOG_LEVEL,
+            "formatter": "standard",
+            "filters": ["request_context"],
+        },
+        "app_file": _file_handler("app.log", LOG_LEVEL),
+        "error_file": _file_handler("error.log", "ERROR"),
+        "security_file": _file_handler("security.log", "WARNING"),
+    },
+    "root": {
+        "handlers": ["console", "app_file", "error_file"],
+        "level": LOG_LEVEL,
+    },
+    "loggers": {
+        "cardshop.request": {
+            "handlers": ["console", "app_file", "error_file"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        "cardshop.orders": {
+            "handlers": ["console", "app_file", "error_file"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        "cardshop.payments": {
+            "handlers": ["console", "app_file", "error_file"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        "cardshop.payments.notify": {
+            "handlers": ["console", "app_file", "error_file"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        "cardshop.security": {
+            "handlers": ["console", "app_file", "error_file", "security_file"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+    },
+}

@@ -63,6 +63,15 @@ class OrderFlowTests(ShopFixtureMixin, TestCase):
             1,
         )
 
+    def test_create_order_writes_business_log(self):
+        with self.assertLogs("cardshop.orders", level="INFO") as logs:
+            order = create_order(product_id=self.product.id, quantity=1, contact="buyer@example.com")
+
+        output = "\n".join(logs.output)
+        self.assertIn("event=order_created", output)
+        self.assertIn(f"order_no={order.order_no}", output)
+        self.assertNotIn("buyer@example.com", output)
+
     def test_create_order_rejects_insufficient_stock(self):
         create_order(product_id=self.product.id, quantity=2, contact="buyer@example.com")
 
@@ -95,6 +104,18 @@ class OrderFlowTests(ShopFixtureMixin, TestCase):
         self.assertEqual(Order.objects.filter(user__isnull=True, product=self.product).count(), 1)
         self.assertEqual(CardSecret.objects.filter(status=CardSecret.Status.RESERVED).count(), 1)
         self.assertEqual(CardSecret.objects.filter(status=CardSecret.Status.AVAILABLE).count(), 1)
+
+    def test_guest_duplicate_order_log_uses_contact_hash(self):
+        create_order(product_id=self.product.id, quantity=1, contact="guest@example.com")
+
+        with self.assertLogs("cardshop.orders", level="INFO") as logs:
+            with self.assertRaises(DuplicatePendingOrder):
+                create_order(product_id=self.product.id, quantity=1, contact="guest@example.com")
+
+        output = "\n".join(logs.output)
+        self.assertIn("event=order_duplicate_pending", output)
+        self.assertIn("contact_hash=", output)
+        self.assertNotIn("guest@example.com", output)
 
     def test_guest_different_contact_same_product_can_create_order(self):
         create_order(product_id=self.product.id, quantity=1, contact="one@example.com")
@@ -136,6 +157,18 @@ class OrderFlowTests(ShopFixtureMixin, TestCase):
         self.assertEqual(paid.status, Order.Status.PAID)
         self.assertEqual(paid.delivery_items, ["CARD-001"])
         self.assertEqual(CardSecret.objects.filter(status=CardSecret.Status.SOLD).count(), 1)
+
+    def test_payment_success_writes_business_log_without_delivery_items(self):
+        order = create_order(product_id=self.product.id, quantity=1, contact="buyer@example.com")
+
+        with self.assertLogs("cardshop.payments", level="INFO") as logs:
+            complete_order_payment(order_no=order.order_no, amount=order.amount, provider="dev", trade_no="T123")
+
+        output = "\n".join(logs.output)
+        self.assertIn("event=payment_completed", output)
+        self.assertIn(f"order_no={order.order_no}", output)
+        self.assertIn("trade_no=T123", output)
+        self.assertNotIn("CARD-001", output)
 
     def test_duplicate_callback_is_idempotent(self):
         order = create_order(product_id=self.product.id, quantity=1, contact="buyer@example.com")
@@ -371,6 +404,25 @@ class ApiFlowTests(ShopFixtureMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         order.refresh_from_db()
         self.assertEqual(order.status, Order.Status.PAID)
+
+    @override_settings(EASYPAY_KEY="secret")
+    def test_invalid_easypay_signature_writes_security_log(self):
+        payload = {
+            "out_trade_no": "O123",
+            "trade_no": "T123",
+            "money": "12.50",
+            "trade_status": "TRADE_SUCCESS",
+            "sign": "bad",
+        }
+
+        with self.assertLogs("cardshop.security", level="WARNING") as logs:
+            response = self.client.post("/api/payments/easypay/notify", payload)
+
+        self.assertEqual(response.status_code, 400)
+        output = "\n".join(logs.output)
+        self.assertIn("event=payment_notify_invalid_signature", output)
+        self.assertIn("provider=easypay", output)
+        self.assertNotIn("sign=bad", output)
 
     def test_alipay_sign_and_verify(self):
         private_pem, public_pem = make_rsa_key_pair()

@@ -192,6 +192,16 @@ docker compose logs -f backend
 docker compose logs -f frontend
 ```
 
+查看后端持久化日志：
+
+```bash
+docker compose exec backend tail -f /app/logs/app.log
+docker compose exec backend tail -f /app/logs/error.log
+docker compose exec backend tail -f /app/logs/security.log
+```
+
+排查接口问题时，优先记录响应头里的 `X-Request-ID`，再用这个 ID 到 backend 日志里搜索同一次请求。
+
 重启服务：
 
 ```bash

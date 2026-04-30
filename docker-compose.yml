@@ -49,6 +49,7 @@ services:
         condition: service_healthy
     volumes:
       - static_data:/app/staticfiles
+      - backend_logs:/app/logs
     healthcheck:
       test:
         [
@@ -86,3 +87,4 @@ volumes:
   mysql_data:
   redis_data:
   static_data:
+  backend_logs:

@@ -1,7 +1,12 @@
+import logging
+
 from django.conf import settings
 
 from .alipay import build_alipay_payment_response
 from .easypay import build_payment_response as build_easypay_payment_response
+
+
+payments_logger = logging.getLogger("cardshop.payments")
 
 
 def build_dev_payment_response(order, request):
@@ -20,7 +25,16 @@ def build_dev_payment_response(order, request):
 def build_payment_response(order, request):
     provider = settings.PAYMENT_PROVIDER
     if provider == "alipay":
-        return build_alipay_payment_response(order, request)
-    if provider == "easypay":
-        return build_easypay_payment_response(order, request)
-    return build_dev_payment_response(order, request)
+        response = build_alipay_payment_response(order, request)
+    elif provider == "easypay":
+        response = build_easypay_payment_response(order, request)
+    else:
+        response = build_dev_payment_response(order, request)
+    payments_logger.info(
+        "event=payment_response_built outcome=success order_no=%s provider=%s amount=%s mode=%s",
+        order.order_no,
+        provider,
+        order.amount,
+        response.get("mode", "-"),
+    )
+    return response
