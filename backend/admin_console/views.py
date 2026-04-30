@@ -1,4 +1,8 @@
+from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.db.models import Count, Q
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import generics
 from rest_framework import serializers
@@ -10,6 +14,7 @@ from rest_framework.views import APIView
 from orders.models import Order, PaymentTransaction
 from shop.models import CardSecret, Category, Product
 
+from .audit import record_operation
 from .dashboard import get_dashboard_payload
 from .inventory import (
     MAX_IMPORT_CHARS,
@@ -17,6 +22,14 @@ from .inventory import (
     build_import_preview,
     commit_card_import,
     without_valid_values,
+)
+from .order_actions import (
+    admin_cancel_order,
+    admin_mark_paid,
+    admin_redeliver_order,
+    admin_release_stock,
+    admin_replace_card,
+    resolve_payment_exception,
 )
 from .permissions import IsAdminConsoleUser, has_admin_permission
 from .serializers import (
@@ -72,6 +85,10 @@ class CardImportRequestSerializer(serializers.Serializer):
         if len(value.splitlines()) > MAX_IMPORT_ROWS:
             raise serializers.ValidationError(f"Ensure this import has no more than {MAX_IMPORT_ROWS} rows.")
         return value
+
+
+class ReasonSerializer(serializers.Serializer):
+    reason = serializers.CharField(allow_blank=False, trim_whitespace=True)
 
 
 class AdminMeView(APIView):
@@ -207,6 +224,69 @@ class OrderDetailView(RequirePermissionMixin, generics.RetrieveAPIView):
         return Order.objects.select_related("user", "product")
 
 
+def _as_drf_validation_error(error):
+    if hasattr(error, "message_dict"):
+        return error.message_dict
+    if hasattr(error, "messages"):
+        return error.messages
+    return str(error)
+
+
+class OrderActionView(RequirePermissionMixin, APIView):
+    required_permission = "can_manage_orders"
+    action = ""
+    service = None
+
+    def post(self, request, order_id):
+        serializer = ReasonSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reason = serializer.validated_data["reason"]
+        try:
+            with transaction.atomic():
+                order, before, after = self.service(order_id)
+                log = record_operation(
+                    request=request,
+                    action=self.action,
+                    target=order,
+                    reason=reason,
+                    before=before,
+                    after=after,
+                )
+        except ObjectDoesNotExist:
+            raise Http404
+        except DjangoValidationError as exc:
+            raise ValidationError(_as_drf_validation_error(exc))
+
+        data = dict(OrderAdminSerializer(order).data)
+        data["log_id"] = log.id
+        return Response(data)
+
+
+class MarkPaidView(OrderActionView):
+    action = "order.mark_paid"
+    service = staticmethod(admin_mark_paid)
+
+
+class CancelOrderView(OrderActionView):
+    action = "order.cancel"
+    service = staticmethod(admin_cancel_order)
+
+
+class RedeliverOrderView(OrderActionView):
+    action = "order.redeliver"
+    service = staticmethod(admin_redeliver_order)
+
+
+class ReplaceCardView(OrderActionView):
+    action = "order.replace_card"
+    service = staticmethod(admin_replace_card)
+
+
+class ReleaseStockView(OrderActionView):
+    action = "order.release_stock"
+    service = staticmethod(admin_release_stock)
+
+
 class PaymentListView(RequirePermissionMixin, generics.ListAPIView):
     serializer_class = PaymentAdminSerializer
     required_permission = "can_view_payments"
@@ -238,3 +318,32 @@ class PaymentDetailView(RequirePermissionMixin, generics.RetrieveAPIView):
         context = super().get_serializer_context()
         context["can_view_sensitive_payload"] = has_admin_permission(self.request.user, "can_view_sensitive_payload")
         return context
+
+
+class PaymentResolveView(RequirePermissionMixin, APIView):
+    required_permission = "can_resolve_payments"
+
+    def post(self, request, payment_id):
+        serializer = ReasonSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reason = serializer.validated_data["reason"]
+        try:
+            with transaction.atomic():
+                payment, before, after = resolve_payment_exception(payment_id, reason)
+                log = record_operation(
+                    request=request,
+                    action="payment.resolve",
+                    target=payment,
+                    reason=reason,
+                    before=before,
+                    after=after,
+                )
+        except ObjectDoesNotExist:
+            raise Http404
+        except DjangoValidationError as exc:
+            raise ValidationError(_as_drf_validation_error(exc))
+
+        context = {"can_view_sensitive_payload": has_admin_permission(request.user, "can_view_sensitive_payload")}
+        data = dict(PaymentAdminSerializer(payment, context=context).data)
+        data["log_id"] = log.id
+        return Response(data)
