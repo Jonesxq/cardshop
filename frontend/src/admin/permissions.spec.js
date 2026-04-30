@@ -21,8 +21,22 @@ describe('admin permissions', () => {
     expect(keys).toContain('orders')
     expect(keys).toContain('inventory')
     expect(keys).toContain('logs')
+    expect(keys).not.toContain('content')
     expect(keys).not.toContain('payments')
     expect(keys).not.toContain('users')
     expect(canUseAdminAction(session, 'can_manage_inventory')).toBe(true)
+  })
+
+  it('shows content menu only to settings managers', () => {
+    const session = {
+      role: 'superadmin',
+      permissions: {
+        can_manage_settings: true,
+      },
+    }
+
+    const keys = adminMenusForSession(session).map((item) => item.key)
+
+    expect(keys).toContain('content')
   })
 })

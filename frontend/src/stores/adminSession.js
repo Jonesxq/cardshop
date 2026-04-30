@@ -9,16 +9,19 @@ export const useAdminSessionStore = defineStore('adminSession', {
     user: null,
     role: '',
     permissions: {},
+    accessToken: '',
   }),
   actions: {
     async load({ force = false } = {}) {
-      if (this.loaded && !force) return
+      const currentToken = localStorage.getItem('access_token') || ''
+      if (this.loaded && !force && this.accessToken === currentToken) return
       this.loading = true
       try {
         const data = await fetchAdminMe()
         this.user = data
         this.role = data.role
         this.permissions = data.permissions || {}
+        this.accessToken = currentToken
         this.loaded = true
       } finally {
         this.loading = false
@@ -30,6 +33,7 @@ export const useAdminSessionStore = defineStore('adminSession', {
       this.user = null
       this.role = ''
       this.permissions = {}
+      this.accessToken = ''
     },
   },
 })

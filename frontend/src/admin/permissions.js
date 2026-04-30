@@ -16,7 +16,7 @@ export const ADMIN_MENUS = [
   { key: 'inventory', label: '库存管理', path: '/admin-console/inventory', icon: Box, permission: 'can_manage_inventory' },
   { key: 'payments', label: '支付流水', path: '/admin-console/payments', icon: CreditCard, permission: 'can_view_payments' },
   { key: 'users', label: '用户管理', path: '/admin-console/users', icon: User, permission: 'can_manage_users' },
-  { key: 'content', label: '内容配置', path: '/admin-console/content', icon: Setting, permission: 'can_manage_products' },
+  { key: 'content', label: '内容配置', path: '/admin-console/content', icon: Setting, permission: 'can_manage_settings' },
   { key: 'logs', label: '操作日志', path: '/admin-console/logs', icon: Document, permission: 'can_view_logs' },
 ]
 
