@@ -1,9 +1,13 @@
+from decimal import Decimal
+
+from django.contrib.auth import get_user_model
 from django.db.models import Count
 from rest_framework import serializers
 
 from orders.models import Order, PaymentTransaction
-from shop.models import CardSecret, Category, Product
+from shop.models import Announcement, CardSecret, Category, Product, SiteConfig
 
+from .models import AdminOperationLog, AdminProfile
 from .permissions import get_admin_role, get_role_permissions
 
 
@@ -70,6 +74,71 @@ class ProductSerializer(serializers.ModelSerializer):
         if value <= 0:
             raise serializers.ValidationError("Price must be greater than 0.")
         return value
+
+
+class AnnouncementAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Announcement
+        fields = ["id", "title", "content", "is_active", "sort_order", "created_at"]
+
+
+class SiteConfigAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SiteConfig
+        fields = ["id", "key", "label", "value"]
+
+
+class SiteConfigUpdateSerializer(serializers.Serializer):
+    label = serializers.CharField(required=False, allow_blank=True)
+    value = serializers.CharField(required=False, allow_blank=True)
+
+
+class UserAdminSerializer(serializers.ModelSerializer):
+    role = serializers.SerializerMethodField()
+    order_count = serializers.IntegerField(read_only=True, default=0)
+    total_paid_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True, default=Decimal("0.00"))
+
+    class Meta:
+        model = get_user_model()
+        fields = [
+            "id",
+            "email",
+            "username",
+            "is_active",
+            "is_staff",
+            "is_superuser",
+            "role",
+            "order_count",
+            "total_paid_amount",
+        ]
+
+    def get_role(self, obj):
+        return get_admin_role(obj)
+
+
+class UserAdminUpdateSerializer(serializers.Serializer):
+    is_active = serializers.BooleanField(required=False)
+    is_staff = serializers.BooleanField(required=False)
+    role = serializers.ChoiceField(choices=AdminProfile.Role.choices, required=False)
+
+
+class AdminOperationLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AdminOperationLog
+        fields = [
+            "id",
+            "actor_email",
+            "actor_role",
+            "action",
+            "target_type",
+            "target_id",
+            "reason",
+            "before",
+            "after",
+            "ip_address",
+            "user_agent",
+            "created_at",
+        ]
 
 
 class CardAdminSerializer(serializers.ModelSerializer):

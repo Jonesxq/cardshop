@@ -3,6 +3,8 @@ from django.urls import path
 from .views import (
     AdminDashboardView,
     AdminMeView,
+    AnnouncementDetailView,
+    AnnouncementListCreateView,
     CardImportCommitView,
     CardImportPreviewView,
     CardListView,
@@ -19,6 +21,11 @@ from .views import (
     ProductListCreateView,
     RedeliverOrderView,
     ReleaseStockView,
+    SiteConfigDetailView,
+    SiteConfigListView,
+    OperationLogListView,
+    UserDetailView,
+    UserListView,
     ReplaceCardView,
 )
 
@@ -30,6 +37,8 @@ urlpatterns = [
     path("products/<int:pk>", ProductDetailView.as_view()),
     path("categories", CategoryListCreateView.as_view()),
     path("categories/<int:pk>", CategoryDetailView.as_view()),
+    path("announcements", AnnouncementListCreateView.as_view()),
+    path("announcements/<int:pk>", AnnouncementDetailView.as_view()),
     path("cards/import/preview", CardImportPreviewView.as_view()),
     path("cards/import/commit", CardImportCommitView.as_view()),
     path("cards", CardListView.as_view()),
@@ -43,4 +52,9 @@ urlpatterns = [
     path("payments", PaymentListView.as_view()),
     path("payments/<int:payment_id>/resolve", PaymentResolveView.as_view()),
     path("payments/<int:pk>", PaymentDetailView.as_view()),
+    path("users", UserListView.as_view()),
+    path("users/<int:pk>", UserDetailView.as_view()),
+    path("site-config", SiteConfigListView.as_view()),
+    path("site-config/<str:key>", SiteConfigDetailView.as_view()),
+    path("logs", OperationLogListView.as_view()),
 ]

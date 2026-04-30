@@ -1,7 +1,11 @@
+from decimal import Decimal
+
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Count, DecimalField, Q, Sum, Value
+from django.db.models.functions import Coalesce
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import generics
@@ -12,7 +16,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from orders.models import Order, PaymentTransaction
-from shop.models import CardSecret, Category, Product
+from shop.models import Announcement, CardSecret, Category, Product, SiteConfig
 
 from .audit import record_operation
 from .dashboard import get_dashboard_payload
@@ -31,13 +35,20 @@ from .order_actions import (
     admin_replace_card,
     resolve_payment_exception,
 )
-from .permissions import IsAdminConsoleUser, has_admin_permission
+from .models import AdminOperationLog, AdminProfile
+from .permissions import IsAdminConsoleUser, get_admin_role, has_admin_permission
 from .serializers import (
+    AdminOperationLogSerializer,
+    AnnouncementAdminSerializer,
     CardAdminSerializer,
     CategorySerializer,
     OrderAdminSerializer,
     PaymentAdminSerializer,
     ProductSerializer,
+    SiteConfigAdminSerializer,
+    SiteConfigUpdateSerializer,
+    UserAdminSerializer,
+    UserAdminUpdateSerializer,
     serialize_admin_me,
 )
 
@@ -152,6 +163,86 @@ class CategoryDetailView(RequirePermissionMixin, generics.RetrieveUpdateAPIView)
     required_permission = "can_manage_products"
     http_method_names = ["get", "patch", "head", "options"]
     queryset = Category.objects.all()
+
+
+class AnnouncementListCreateView(RequirePermissionMixin, generics.ListCreateAPIView):
+    serializer_class = AnnouncementAdminSerializer
+    required_permission = "can_manage_products"
+    queryset = Announcement.objects.all().order_by("sort_order", "-created_at", "-id")
+
+
+class AnnouncementDetailView(RequirePermissionMixin, generics.RetrieveUpdateAPIView):
+    serializer_class = AnnouncementAdminSerializer
+    required_permission = "can_manage_products"
+    http_method_names = ["get", "patch", "head", "options"]
+    queryset = Announcement.objects.all()
+
+
+class UserListView(RequirePermissionMixin, generics.ListAPIView):
+    serializer_class = UserAdminSerializer
+    required_permission = "can_manage_users"
+
+    def get_queryset(self):
+        queryset = (
+            get_user_model()
+            .objects.annotate(
+                order_count=Count("order", distinct=True),
+                total_paid_amount=Coalesce(
+                    Sum("order__amount", filter=Q(order__status=Order.Status.PAID)),
+                    Value(Decimal("0.00")),
+                    output_field=DecimalField(max_digits=10, decimal_places=2),
+                ),
+            )
+            .order_by("id")
+        )
+        keyword = self.request.query_params.get("keyword")
+        if keyword:
+            queryset = queryset.filter(Q(email__icontains=keyword) | Q(username__icontains=keyword))
+        return queryset
+
+
+def _staff_snapshot(user):
+    return {
+        "is_active": user.is_active,
+        "is_staff": user.is_staff,
+        "role": get_admin_role(user),
+    }
+
+
+class UserDetailView(RequirePermissionMixin, generics.RetrieveUpdateAPIView):
+    serializer_class = UserAdminSerializer
+    required_permission = "can_manage_staff"
+    http_method_names = ["get", "patch", "head", "options"]
+
+    def get_queryset(self):
+        return get_user_model().objects.all()
+
+    def patch(self, request, *args, **kwargs):
+        user = self.get_object()
+        serializer = UserAdminUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        before = _staff_snapshot(user)
+
+        with transaction.atomic():
+            for field in ("is_active", "is_staff"):
+                if field in serializer.validated_data:
+                    setattr(user, field, serializer.validated_data[field])
+            user.save(update_fields=["is_active", "is_staff"])
+
+            role = serializer.validated_data.get("role")
+            if role is not None:
+                AdminProfile.objects.update_or_create(user=user, defaults={"role": role})
+            user.refresh_from_db()
+            after = _staff_snapshot(user)
+            record_operation(
+                request=request,
+                action="user.update_staff",
+                target=user,
+                before=before,
+                after=after,
+            )
+
+        return Response(UserAdminSerializer(user).data)
 
 
 class CardListView(RequirePermissionMixin, generics.ListAPIView):
@@ -349,3 +440,49 @@ class PaymentResolveView(RequirePermissionMixin, APIView):
         data = dict(PaymentAdminSerializer(payment, context=context).data)
         data["log_id"] = log.id
         return Response(data)
+
+
+class SiteConfigListView(RequirePermissionMixin, generics.ListAPIView):
+    serializer_class = SiteConfigAdminSerializer
+    required_permission = "can_manage_settings"
+    queryset = SiteConfig.objects.all().order_by("key")
+
+
+class SiteConfigDetailView(RequirePermissionMixin, APIView):
+    required_permission = "can_manage_settings"
+
+    def patch(self, request, key):
+        serializer = SiteConfigUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            config, _created = SiteConfig.objects.get_or_create(key=key)
+            before = {
+                "key": config.key,
+                "label": config.label,
+                "value": config.value,
+            }
+            for field in ("label", "value"):
+                if field in serializer.validated_data:
+                    setattr(config, field, serializer.validated_data[field])
+            config.save()
+            after = {
+                "key": config.key,
+                "label": config.label,
+                "value": config.value,
+            }
+            record_operation(
+                request=request,
+                action="site_config.update",
+                target=config,
+                before=before,
+                after=after,
+            )
+
+        return Response(SiteConfigAdminSerializer(config).data)
+
+
+class OperationLogListView(RequirePermissionMixin, generics.ListAPIView):
+    serializer_class = AdminOperationLogSerializer
+    required_permission = "can_view_logs"
+    queryset = AdminOperationLog.objects.all()
