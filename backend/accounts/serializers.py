@@ -86,14 +86,18 @@ class RegisterSerializer(serializers.Serializer):
 
 
 class LoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    email = serializers.CharField()
     password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
-        email = attrs["email"].lower()
-        user = authenticate(username=email, password=attrs["password"])
+        identifier = attrs["email"].strip()
+        user = User.objects.filter(username__iexact=identifier).first()
         if not user:
-            raise serializers.ValidationError("邮箱或密码错误")
+            user = User.objects.filter(email__iexact=identifier).first()
+        if user:
+            user = authenticate(username=user.username, password=attrs["password"])
+        if not user:
+            raise serializers.ValidationError("账号或密码错误")
         attrs["user"] = user
         return attrs
 

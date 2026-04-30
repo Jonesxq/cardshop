@@ -1,6 +1,6 @@
 <template>
   <div class="app-shell">
-    <header class="topbar">
+    <header v-if="!isAdminRoute" class="topbar">
       <RouterLink class="brand" to="/">
         <span class="brand-mark">AI</span>
         <span>{{ siteName }}</span>
@@ -25,7 +25,7 @@
       </nav>
       <div class="user-actions">
         <el-button v-if="!auth.isLoggedIn" :icon="User" @click="$router.push('/login')">登录</el-button>
-        <el-button v-else :icon="SwitchButton" @click="auth.logout()">退出</el-button>
+        <el-button v-else :icon="SwitchButton" @click="logout">退出</el-button>
       </div>
     </header>
     <RouterView @site-loaded="siteName = $event.site_name || siteName" />
@@ -33,10 +33,20 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { HomeFilled, Monitor, Search, SwitchButton, Tickets, User } from '@element-plus/icons-vue'
 import { useAuthStore } from './stores/auth'
+import { useAdminSessionStore } from './stores/adminSession'
 
 const siteName = ref('AI 发卡商城')
 const auth = useAuthStore()
+const adminSession = useAdminSessionStore()
+const route = useRoute()
+const isAdminRoute = computed(() => route.path.startsWith('/admin-console'))
+
+const logout = () => {
+  auth.logout()
+  adminSession.reset()
+}
 </script>

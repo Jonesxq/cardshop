@@ -3,8 +3,8 @@
     <section class="auth-panel">
       <h1>登录</h1>
       <el-form label-position="top" @submit.prevent>
-        <el-form-item label="邮箱">
-          <el-input v-model="form.email" type="email" autocomplete="email" />
+        <el-form-item label="账号 / 邮箱">
+          <el-input v-model="form.email" type="text" autocomplete="username" />
         </el-form-item>
         <el-form-item label="密码">
           <el-input v-model="form.password" type="password" show-password autocomplete="current-password" />

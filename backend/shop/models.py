@@ -54,6 +54,7 @@ class CardSecret(models.Model):
         AVAILABLE = "available", "可售"
         RESERVED = "reserved", "已预留"
         SOLD = "sold", "已售出"
+        VOID = "void", "Voided"
 
     product = models.ForeignKey(Product, verbose_name="所属商品", on_delete=models.CASCADE, related_name="cards")
     encrypted_secret = models.TextField("加密卡密")

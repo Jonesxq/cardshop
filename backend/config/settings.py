@@ -1,6 +1,7 @@
 from datetime import timedelta
 from pathlib import Path
 import os
+import sys
 
 from dotenv import load_dotenv
 
@@ -39,6 +40,7 @@ INSTALLED_APPS = [
     "shop.apps.ShopConfig",
     "orders.apps.OrdersConfig",
     "payments.apps.PaymentsConfig",
+    "admin_console.apps.AdminConsoleConfig",
 ]
 
 MIDDLEWARE = [
@@ -72,7 +74,18 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-if os.getenv("DB_ENGINE", "sqlite").lower() == "mysql":
+def _default_db_engine(argv=None):
+    argv = argv if argv is not None else sys.argv
+    executable = Path(str(argv[0])).stem.lower() if argv else ""
+    management_command = str(argv[1]).lower() if len(argv) > 1 else ""
+    if executable in {"pytest", "py.test"} or management_command == "test":
+        return "sqlite"
+    return "mysql"
+
+
+DB_ENGINE = os.getenv("DB_ENGINE", _default_db_engine()).lower()
+
+if DB_ENGINE == "mysql":
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.mysql",
@@ -84,13 +97,15 @@ if os.getenv("DB_ENGINE", "sqlite").lower() == "mysql":
             "OPTIONS": {"charset": "utf8mb4"},
         }
     }
-else:
+elif DB_ENGINE == "sqlite":
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
             "NAME": BASE_DIR / "db.sqlite3",
         }
     }
+else:
+    raise RuntimeError(f"Unsupported DB_ENGINE: {DB_ENGINE}")
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
