@@ -12,8 +12,8 @@
       <el-input v-model="filters.provider" clearable placeholder="渠道" />
       <el-select v-model="filters.status" clearable placeholder="状态">
         <el-option label="成功" value="success" />
-        <el-option label="待处理" value="pending" />
         <el-option label="失败" value="failed" />
+        <el-option label="已忽略" value="ignored" />
       </el-select>
       <el-button type="primary" :icon="Search" @click="load">查询</el-button>
     </div>
@@ -30,7 +30,7 @@
       <el-table-column label="操作" width="180" fixed="right">
         <template #default="{ row }">
           <el-button size="small" :icon="View" @click="selected = row">载荷</el-button>
-          <el-button v-if="canResolvePayments && row.status !== 'success'" size="small" type="primary" :icon="CircleCheck" @click="resolve(row)">处理</el-button>
+          <el-button v-if="canResolvePayments && row.status === 'failed'" size="small" type="primary" :icon="CircleCheck" @click="resolve(row)">处理</el-button>
         </template>
       </el-table-column>
     </el-table>

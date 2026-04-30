@@ -6,7 +6,7 @@
         <p>维护商品、分类、上下架和排序</p>
       </div>
       <div class="admin-head-actions">
-        <el-button :icon="FolderAdd" @click="categoryDialog = true">新建分类</el-button>
+        <el-button :icon="FolderAdd" @click="openCategoryCreate">新建分类</el-button>
         <el-button type="primary" :icon="Plus" @click="productDialog = true">新建商品</el-button>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
       </div>
@@ -162,8 +162,23 @@ const createProduct = async () => {
   }
 }
 
+const resetCategoryForm = () => {
+  Object.assign(categoryForm, { id: null, name: '', slug: '', is_active: true, sort_order: 0 })
+}
+
+const openCategoryCreate = () => {
+  resetCategoryForm()
+  categoryDialog.value = true
+}
+
 const openCategoryEdit = (row) => {
-  Object.assign(categoryForm, row)
+  Object.assign(categoryForm, {
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    is_active: row.is_active,
+    sort_order: row.sort_order,
+  })
   categoryDialog.value = true
 }
 
@@ -189,7 +204,7 @@ const saveCategory = async () => {
     if (categoryForm.id) await updateAdminCategory(categoryForm.id, payload)
     else await createAdminCategory(payload)
     categoryDialog.value = false
-    Object.assign(categoryForm, { id: null, name: '', slug: '', is_active: true, sort_order: 0 })
+    resetCategoryForm()
     ElMessage.success('分类已保存')
     await load()
   } catch (error) {

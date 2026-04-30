@@ -38,11 +38,11 @@
       <el-table-column label="操作" width="390" fixed="right">
         <template #default="{ row }">
           <div class="admin-row-actions">
-            <el-button size="small" :icon="CircleCheck" @click="runOrderAction(row, markAdminOrderPaid)">标记支付</el-button>
-            <el-button size="small" :icon="Close" @click="runOrderAction(row, cancelAdminOrder)">取消</el-button>
-            <el-button size="small" :icon="Tickets" @click="runOrderAction(row, redeliverAdminOrder)">重发</el-button>
-            <el-button size="small" :icon="RefreshRight" @click="runOrderAction(row, replaceAdminOrderCard)">换卡</el-button>
-            <el-button size="small" :icon="Box" @click="runOrderAction(row, releaseAdminOrderStock)">释放</el-button>
+            <el-button v-if="row.status === 'pending'" size="small" :icon="CircleCheck" @click="runOrderAction(row, markAdminOrderPaid)">标记支付</el-button>
+            <el-button v-if="row.status === 'pending' || row.status === 'expired'" size="small" :icon="Close" @click="runOrderAction(row, cancelAdminOrder)">取消</el-button>
+            <el-button v-if="row.status === 'paid'" size="small" :icon="Tickets" @click="runOrderAction(row, redeliverAdminOrder)">重发</el-button>
+            <el-button v-if="row.status === 'paid'" size="small" :icon="RefreshRight" @click="runOrderAction(row, replaceAdminOrderCard)">换卡</el-button>
+            <el-button v-if="row.status === 'pending'" size="small" :icon="Box" @click="runOrderAction(row, releaseAdminOrderStock)">释放</el-button>
           </div>
         </template>
       </el-table-column>

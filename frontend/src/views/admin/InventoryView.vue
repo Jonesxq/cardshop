@@ -13,19 +13,19 @@
         <h2>导入卡密</h2>
         <el-form label-position="top">
           <el-form-item label="商品">
-            <el-select v-model="form.product_id" filterable placeholder="选择商品" @change="loadCards">
+            <el-select v-model="form.product_id" filterable placeholder="选择商品" @change="handleImportProductChange">
               <el-option v-for="product in products" :key="product.id" :label="product.name" :value="product.id" />
             </el-select>
           </el-form-item>
           <el-form-item label="卡密">
-            <el-input v-model="form.cards" type="textarea" :rows="10" placeholder="每行一条卡密" />
+            <el-input v-model="form.cards" type="textarea" :rows="10" placeholder="每行一条卡密" @input="clearPreview" />
           </el-form-item>
           <el-form-item label="原因">
             <el-input v-model="form.reason" placeholder="例如：供应商补货批次 20260430" />
           </el-form-item>
           <div class="admin-actions">
             <el-button :icon="View" @click="preview">预览</el-button>
-            <el-button type="primary" :disabled="!previewResult" @click="commit">确认导入</el-button>
+            <el-button type="primary" :disabled="!canCommit" @click="commit">确认导入</el-button>
           </div>
         </el-form>
       </div>
@@ -76,7 +76,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, View } from '@element-plus/icons-vue'
 
@@ -86,8 +86,15 @@ const loading = ref(false)
 const products = ref([])
 const cards = ref([])
 const previewResult = ref(null)
+const previewSnapshot = ref(null)
 const form = reactive({ product_id: '', cards: '', reason: '' })
 const cardFilters = reactive({ product_id: '', status: '' })
+const canCommit = computed(() => Boolean(
+  previewResult.value
+  && previewSnapshot.value
+  && previewSnapshot.value.product_id === form.product_id
+  && previewSnapshot.value.cards === form.cards,
+))
 
 const loadProducts = async () => {
   const response = await fetchAdminProducts({ page_size: 100 })
@@ -97,6 +104,16 @@ const loadProducts = async () => {
 const loadCards = async () => {
   const response = await fetchAdminCards(cardFilters)
   cards.value = response.results || []
+}
+
+const clearPreview = () => {
+  previewResult.value = null
+  previewSnapshot.value = null
+}
+
+const handleImportProductChange = async () => {
+  clearPreview()
+  await loadCards()
 }
 
 const load = async () => {
@@ -115,17 +132,19 @@ const preview = async () => {
   if (!form.product_id) return ElMessage.warning('请选择商品')
   try {
     previewResult.value = await previewCardImport({ product_id: form.product_id, cards: form.cards })
+    previewSnapshot.value = { product_id: form.product_id, cards: form.cards }
   } catch (error) {
     ElMessage.error(error.message || '预览失败')
   }
 }
 
 const commit = async () => {
+  if (!canCommit.value) return ElMessage.warning('请先预览当前商品和卡密')
   if (!form.reason.trim()) return ElMessage.warning('原因不能为空')
   try {
     const result = await commitCardImport({ product_id: form.product_id, cards: form.cards, reason: form.reason.trim() })
     ElMessage.success(`已导入 ${result.created_count || 0} 条`)
-    previewResult.value = null
+    clearPreview()
     form.cards = ''
     await loadCards()
   } catch (error) {
