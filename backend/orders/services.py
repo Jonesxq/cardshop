@@ -1,4 +1,5 @@
 from decimal import Decimal
+import logging
 import secrets
 
 from django.conf import settings
@@ -6,8 +7,13 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from config.logging_context import contact_hash
 from shop.models import CardSecret, Product
 from .models import Order, PaymentTransaction
+
+
+orders_logger = logging.getLogger("cardshop.orders")
+payments_logger = logging.getLogger("cardshop.payments")
 
 
 class DuplicatePendingOrder(Exception):
@@ -35,11 +41,19 @@ def expire_pending_orders(now=None):
     with transaction.atomic():
         orders = Order.objects.select_for_update().filter(id__in=expired, status=Order.Status.PENDING)
         count = orders.update(status=Order.Status.EXPIRED)
-        CardSecret.objects.filter(reserved_order_id__in=expired, status=CardSecret.Status.RESERVED).update(
+        released_count = CardSecret.objects.filter(
+            reserved_order_id__in=expired,
+            status=CardSecret.Status.RESERVED,
+        ).update(
             status=CardSecret.Status.AVAILABLE,
             reserved_order=None,
             reserved_until=None,
         )
+    orders_logger.info(
+        "event=orders_expired outcome=success expired_count=%s released_count=%s",
+        count,
+        released_count,
+    )
     return count
 
 
@@ -78,6 +92,16 @@ def create_order(*, product_id, quantity, contact, pay_type="alipay", user=None)
                 .first()
             )
         if existing_order:
+            if getattr(user, "is_authenticated", False):
+                identity = f"user_id={user.id}"
+            else:
+                identity = f"contact_hash={contact_hash(contact)}"
+            orders_logger.info(
+                "event=order_duplicate_pending outcome=rejected existing_order_no=%s product_id=%s %s",
+                existing_order.order_no,
+                product.id,
+                identity,
+            )
             raise DuplicatePendingOrder(existing_order)
 
         cards = list(
@@ -86,6 +110,12 @@ def create_order(*, product_id, quantity, contact, pay_type="alipay", user=None)
             .order_by("id")[:quantity]
         )
         if len(cards) < quantity:
+            orders_logger.info(
+                "event=order_insufficient_stock outcome=rejected product_id=%s requested_quantity=%s available=%s",
+                product.id,
+                quantity,
+                len(cards),
+            )
             raise ValidationError("库存不足")
         expires_at = timezone.now() + timezone.timedelta(minutes=settings.ORDER_RESERVE_MINUTES)
         order = Order.objects.create(
@@ -103,6 +133,15 @@ def create_order(*, product_id, quantity, contact, pay_type="alipay", user=None)
             card.reserved_order = order
             card.reserved_until = expires_at
         CardSecret.objects.bulk_update(cards, ["status", "reserved_order", "reserved_until"])
+    orders_logger.info(
+        "event=order_created outcome=success order_no=%s product_id=%s quantity=%s amount=%s user_id=%s expires_at=%s",
+        order.order_no,
+        product.id,
+        quantity,
+        order.amount,
+        getattr(order.user, "id", "") or "-",
+        order.expires_at.isoformat(),
+    )
     return order
 
 
@@ -125,6 +164,15 @@ def complete_order_payment(*, order_no, amount, provider="easypay", trade_no="",
                 note="支付金额与订单金额不一致",
             )
             error_message = "支付金额与订单金额不一致"
+            payments_logger.warning(
+                "event=payment_failed outcome=failed reason=amount_mismatch order_no=%s provider=%s trade_no=%s "
+                "expected_amount=%s received_amount=%s",
+                order.order_no,
+                provider,
+                trade_no or "-",
+                order.amount,
+                amount,
+            )
         elif order.status == Order.Status.PAID:
             PaymentTransaction.objects.create(
                 order=order,
@@ -137,6 +185,13 @@ def complete_order_payment(*, order_no, amount, provider="easypay", trade_no="",
                 note="重复回调，订单已支付",
             )
             result_order = order
+            payments_logger.info(
+                "event=payment_duplicate_callback outcome=ignored order_no=%s provider=%s trade_no=%s amount=%s",
+                order.order_no,
+                provider,
+                trade_no or "-",
+                amount,
+            )
         elif order.status != Order.Status.PENDING:
             PaymentTransaction.objects.create(
                 order=order,
@@ -149,6 +204,14 @@ def complete_order_payment(*, order_no, amount, provider="easypay", trade_no="",
                 note=f"订单状态不可支付: {order.status}",
             )
             error_message = "订单当前状态不可支付"
+            payments_logger.warning(
+                "event=payment_failed outcome=failed reason=invalid_order_status order_no=%s provider=%s "
+                "trade_no=%s order_status=%s",
+                order.order_no,
+                provider,
+                trade_no or "-",
+                order.status,
+            )
         elif order.expires_at < timezone.now():
             order.status = Order.Status.EXPIRED
             order.save(update_fields=["status", "updated_at"])
@@ -168,6 +231,12 @@ def complete_order_payment(*, order_no, amount, provider="easypay", trade_no="",
                 note="订单已过期",
             )
             error_message = "订单已过期"
+            payments_logger.warning(
+                "event=payment_failed outcome=failed reason=order_expired order_no=%s provider=%s trade_no=%s",
+                order.order_no,
+                provider,
+                trade_no or "-",
+            )
         else:
             cards = list(
                 CardSecret.objects.select_for_update().filter(
@@ -177,6 +246,15 @@ def complete_order_payment(*, order_no, amount, provider="easypay", trade_no="",
             )
             if len(cards) != order.quantity:
                 error_message = "预留库存异常，请联系售后"
+                payments_logger.error(
+                    "event=payment_failed outcome=failed reason=reserved_stock_mismatch order_no=%s provider=%s "
+                    "trade_no=%s expected_quantity=%s reserved_count=%s",
+                    order.order_no,
+                    provider,
+                    trade_no or "-",
+                    order.quantity,
+                    len(cards),
+                )
             else:
                 delivered = []
                 for card in cards:
@@ -201,6 +279,15 @@ def complete_order_payment(*, order_no, amount, provider="easypay", trade_no="",
                     raw_payload=raw_payload,
                 )
                 result_order = order
+                payments_logger.info(
+                    "event=payment_completed outcome=success order_no=%s provider=%s trade_no=%s amount=%s "
+                    "delivered_count=%s",
+                    order.order_no,
+                    provider,
+                    trade_no or "-",
+                    amount,
+                    len(delivered),
+                )
     if error_message:
         raise ValidationError(error_message)
     return result_order
