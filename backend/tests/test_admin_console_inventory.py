@@ -1,4 +1,5 @@
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -116,6 +117,23 @@ class AdminConsoleInventoryImportTests(TestCase):
         self.assertIn("reason", response.data)
         self.assertEqual(self.card_values(), {"EXISTING-001"})
         self.assertEqual(AdminOperationLog.objects.count(), 0)
+
+    def test_commit_rolls_back_card_creation_when_audit_log_fails(self):
+        self.authenticate(self.operator)
+
+        with patch.object(AdminOperationLog.objects, "create", side_effect=RuntimeError("audit failed")):
+            with self.assertRaises(RuntimeError):
+                self.client.post(
+                    "/api/admin-console/cards/import/commit",
+                    {
+                        "product_id": self.product.id,
+                        "cards": "NEW-025",
+                        "reason": "Restock with audit rollback",
+                    },
+                    format="json",
+                )
+
+        self.assertEqual(self.card_values(), {"EXISTING-001"})
 
     def test_finance_cannot_commit_cards(self):
         self.authenticate(self.finance)

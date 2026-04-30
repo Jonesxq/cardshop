@@ -4,6 +4,8 @@ from django.db import transaction
 
 from shop.models import CardSecret, Product
 
+from .audit import record_operation
+
 
 @dataclass(frozen=True)
 class ImportRow:
@@ -87,7 +89,7 @@ def without_valid_values(preview):
     return result
 
 
-def commit_card_import(product_id, cards):
+def commit_card_import(*, product_id, cards, request, reason):
     with transaction.atomic():
         product = Product.objects.select_for_update().get(id=product_id)
         preview = build_import_preview(product, cards)
@@ -98,6 +100,15 @@ def commit_card_import(product_id, cards):
             card_objects.append(card)
         CardSecret.objects.bulk_create(card_objects)
 
-    result = without_valid_values(preview)
-    result["created_count"] = len(card_objects)
+        result = without_valid_values(preview)
+        result["created_count"] = len(card_objects)
+        log = record_operation(
+            request=request,
+            action="inventory.import",
+            target=product,
+            reason=reason,
+            after=result,
+        )
+        result["log_id"] = log.id
+
     return product, result

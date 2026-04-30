@@ -10,7 +10,6 @@ from rest_framework.views import APIView
 from orders.models import Order, PaymentTransaction
 from shop.models import CardSecret, Category, Product
 
-from .audit import record_operation
 from .dashboard import get_dashboard_payload
 from .inventory import build_import_preview, commit_card_import, without_valid_values
 from .permissions import IsAdminConsoleUser, has_admin_permission
@@ -164,18 +163,12 @@ class CardImportCommitView(RequirePermissionMixin, APIView):
             raise ValidationError({"reason": "This field may not be blank."})
 
         get_object_or_404(Product, id=serializer.validated_data["product_id"])
-        product, result = commit_card_import(
-            serializer.validated_data["product_id"],
-            serializer.validated_data["cards"],
-        )
-        log = record_operation(
+        _, result = commit_card_import(
+            product_id=serializer.validated_data["product_id"],
+            cards=serializer.validated_data["cards"],
             request=request,
-            action="inventory.import",
-            target=product,
             reason=reason,
-            after=result,
         )
-        result["log_id"] = log.id
         return Response(result)
 
 
