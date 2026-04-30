@@ -75,6 +75,9 @@ class AdminConsoleAccessTests(TestCase):
         self.assertEqual(response.data["email"], "operator@example.com")
         self.assertEqual(response.data["role"], "operator")
         self.assertEqual(response.data["permissions"]["can_manage_inventory"], True)
+        self.assertEqual(response.data["permissions"]["can_manage_products"], True)
+        self.assertEqual(response.data["permissions"]["can_view_payments"], False)
+        self.assertEqual(response.data["permissions"]["can_view_sensitive_payload"], False)
         self.assertEqual(response.data["permissions"]["can_manage_staff"], False)
 
     def test_superuser_is_superadmin_without_profile(self):

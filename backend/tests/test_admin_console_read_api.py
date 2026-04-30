@@ -6,6 +6,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from admin_console.models import AdminProfile
+from admin_console.permissions import has_admin_permission
 from orders.models import Order, PaymentTransaction
 from shop.models import Announcement, CardSecret, Category, Product, SiteConfig
 
@@ -97,6 +98,13 @@ class AdminConsoleReadApiTests(TestCase):
         self.product.refresh_from_db()
         self.assertEqual(self.product.is_active, False)
 
+    def test_finance_cannot_list_products(self):
+        self.authenticate(self.finance)
+
+        response = self.client.get("/api/admin-console/products")
+
+        self.assertEqual(response.status_code, 403)
+
     def test_cards_list_does_not_expose_plain_or_encrypted_secret(self):
         self.authenticate(self.operator)
 
@@ -115,6 +123,7 @@ class AdminConsoleReadApiTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_finance_can_list_payment_transactions_with_raw_payload(self):
+        self.assertEqual(has_admin_permission(self.finance, "can_view_sensitive_payload"), True)
         self.authenticate(self.finance)
 
         response = self.client.get("/api/admin-console/payments")
@@ -140,6 +149,8 @@ class AdminConsoleReadApiTests(TestCase):
 
     def test_payment_detail_masks_sensitive_payload_for_superadmin_only_not_operator(self):
         # Operator cannot access payments at all, finance can see full payload.
+        self.assertEqual(has_admin_permission(self.operator, "can_view_sensitive_payload"), False)
+        self.assertEqual(has_admin_permission(self.finance, "can_view_sensitive_payload"), True)
         self.authenticate(self.finance)
         payment = PaymentTransaction.objects.get()
 

@@ -20,20 +20,6 @@ from .serializers import (
 )
 
 
-PERMISSION_ALIASES = {
-    "can_manage_products": ("can_manage_inventory",),
-    "can_view_dashboard": ("can_manage_inventory", "can_manage_orders", "can_manage_payments", "can_manage_staff"),
-    "can_view_payments": ("can_manage_payments",),
-    "can_view_sensitive_payload": ("can_manage_payments",),
-}
-
-
-def user_has_admin_permission(user, permission):
-    return has_admin_permission(user, permission) or any(
-        has_admin_permission(user, alias) for alias in PERMISSION_ALIASES.get(permission, ())
-    )
-
-
 class AdminPagination(PageNumberPagination):
     page_size = 20
     page_size_query_param = "page_size"
@@ -47,7 +33,7 @@ class RequirePermissionMixin:
 
     def check_permissions(self, request):
         super().check_permissions(request)
-        if self.required_permission and not user_has_admin_permission(request.user, self.required_permission):
+        if self.required_permission and not has_admin_permission(request.user, self.required_permission):
             raise PermissionDenied()
 
 
@@ -142,9 +128,7 @@ class PaymentListView(RequirePermissionMixin, generics.ListAPIView):
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        context["can_view_sensitive_payload"] = user_has_admin_permission(
-            self.request.user, "can_view_sensitive_payload"
-        )
+        context["can_view_sensitive_payload"] = has_admin_permission(self.request.user, "can_view_sensitive_payload")
         return context
 
 
@@ -157,7 +141,5 @@ class PaymentDetailView(RequirePermissionMixin, generics.RetrieveAPIView):
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        context["can_view_sensitive_payload"] = user_has_admin_permission(
-            self.request.user, "can_view_sensitive_payload"
-        )
+        context["can_view_sensitive_payload"] = has_admin_permission(self.request.user, "can_view_sensitive_payload")
         return context
