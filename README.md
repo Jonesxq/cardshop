@@ -42,6 +42,7 @@ FERNET_KEY=
 ALLOWED_HOSTS=你的域名或服务器IP
 CSRF_TRUSTED_ORIGINS=https://你的域名
 CORS_ALLOWED_ORIGINS=https://你的域名
+HTTP_PORT=80
 
 DB_NAME=cardshop
 DB_USER=cardshop
@@ -60,6 +61,13 @@ CSRF_TRUSTED_ORIGINS=http://你的服务器IP
 CORS_ALLOWED_ORIGINS=http://你的服务器IP
 SITE_URL=http://你的服务器IP
 PAYMENT_PROVIDER=dev
+```
+
+如果服务器的 80 端口已被面板或其他 Nginx 占用，可以改成例如：
+
+```env
+HTTP_PORT=8080
+SITE_URL=http://你的服务器IP:8080
 ```
 
 启动：
@@ -265,8 +273,10 @@ DEFAULT_FROM_EMAIL=你的QQ邮箱
 | `ALLOWED_HOSTS` | 允许访问的域名或 IP，逗号分隔 |
 | `CSRF_TRUSTED_ORIGINS` | HTTPS 域名需要配置，例如 `https://example.com` |
 | `CORS_ALLOWED_ORIGINS` | 前端访问源，逗号分隔 |
+| `HTTP_PORT` | Docker 对外暴露的前端端口，默认 `80` |
 | `DB_ENGINE` | 默认 `mysql` |
 | `DB_HOST` | Docker 内为 `mysql`，本地开发通常为 `127.0.0.1` |
+| `MYSQL_ROOT_PASSWORD` | MySQL root 密码，生产必须改强密码 |
 | `REDIS_URL` | Docker 内为 `redis://redis:6379/0` |
 | `SITE_URL` | 前端站点地址，用于支付跳转和回调 |
 | `PAYMENT_PROVIDER` | `dev`、`alipay` 或其他已实现渠道 |
