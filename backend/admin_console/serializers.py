@@ -8,7 +8,7 @@ from orders.models import Order, PaymentTransaction
 from shop.models import Announcement, CardSecret, Category, Product, SiteConfig
 
 from .models import AdminOperationLog, AdminProfile
-from .permissions import get_admin_role, get_role_permissions
+from .permissions import get_admin_role, get_role_permissions, has_admin_permission
 
 
 class AdminMeSerializer(serializers.Serializer):
@@ -90,7 +90,7 @@ class SiteConfigAdminSerializer(serializers.ModelSerializer):
 
 class SiteConfigUpdateSerializer(serializers.Serializer):
     label = serializers.CharField(required=False, allow_blank=True)
-    value = serializers.CharField(required=False, allow_blank=True)
+    value = serializers.CharField(required=True, allow_blank=True)
 
 
 class UserAdminSerializer(serializers.ModelSerializer):
@@ -120,9 +120,15 @@ class UserAdminUpdateSerializer(serializers.Serializer):
     is_active = serializers.BooleanField(required=False)
     is_staff = serializers.BooleanField(required=False)
     role = serializers.ChoiceField(choices=AdminProfile.Role.choices, required=False)
+    reason = serializers.CharField(allow_blank=False, trim_whitespace=True)
 
 
 class AdminOperationLogSerializer(serializers.ModelSerializer):
+    before = serializers.SerializerMethodField()
+    after = serializers.SerializerMethodField()
+    ip_address = serializers.SerializerMethodField()
+    user_agent = serializers.SerializerMethodField()
+
     class Meta:
         model = AdminOperationLog
         fields = [
@@ -139,6 +145,31 @@ class AdminOperationLogSerializer(serializers.ModelSerializer):
             "user_agent",
             "created_at",
         ]
+
+    def _can_view_details(self):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        return get_admin_role(user) == AdminProfile.Role.SUPERADMIN or has_admin_permission(user, "can_manage_settings")
+
+    def get_before(self, obj):
+        if not self._can_view_details():
+            return {}
+        return obj.before
+
+    def get_after(self, obj):
+        if not self._can_view_details():
+            return {}
+        return obj.after
+
+    def get_ip_address(self, obj):
+        if not self._can_view_details():
+            return ""
+        return obj.ip_address
+
+    def get_user_agent(self, obj):
+        if not self._can_view_details():
+            return ""
+        return obj.user_agent
 
 
 class CardAdminSerializer(serializers.ModelSerializer):

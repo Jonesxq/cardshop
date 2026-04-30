@@ -53,6 +53,9 @@ from .serializers import (
 )
 
 
+ALLOWED_SITE_CONFIG_KEYS = {"site_name", "logo_url", "support_contact", "footer_text"}
+
+
 def get_stock_counts_by_product(product_ids):
     stock_map = {
         product_id: {"available": 0, "reserved": 0, "sold": 0, "void": 0}
@@ -185,7 +188,8 @@ class UserListView(RequirePermissionMixin, generics.ListAPIView):
     def get_queryset(self):
         queryset = (
             get_user_model()
-            .objects.annotate(
+            .objects.select_related("admin_profile")
+            .annotate(
                 order_count=Count("order", distinct=True),
                 total_paid_amount=Coalesce(
                     Sum("order__amount", filter=Q(order__status=Order.Status.PAID)),
@@ -209,19 +213,52 @@ def _staff_snapshot(user):
     }
 
 
+def _has_active_staff_superadmin_excluding(user):
+    return (
+        get_user_model()
+        .objects.exclude(id=user.id)
+        .filter(is_active=True, is_staff=True)
+        .filter(Q(is_superuser=True) | Q(admin_profile__role=AdminProfile.Role.SUPERADMIN))
+        .exists()
+    )
+
+
+def _validate_staff_update(request, user, data, before):
+    next_is_active = data.get("is_active", user.is_active)
+    next_is_staff = data.get("is_staff", user.is_staff)
+    next_role = data.get("role", before["role"])
+
+    if request.user.id == user.id:
+        if user.is_active and next_is_active is False:
+            raise ValidationError({"is_active": "You cannot disable your own admin account."})
+        if user.is_staff and next_is_staff is False:
+            raise ValidationError({"is_staff": "You cannot remove your own staff access."})
+        if before["role"] == AdminProfile.Role.SUPERADMIN and next_role != AdminProfile.Role.SUPERADMIN:
+            raise ValidationError({"role": "You cannot demote your own superadmin role."})
+
+    target_remains_superadmin = bool(
+        next_is_active
+        and next_is_staff
+        and (user.is_superuser or next_role == AdminProfile.Role.SUPERADMIN)
+    )
+    if not target_remains_superadmin and not _has_active_staff_superadmin_excluding(user):
+        raise ValidationError({"role": "At least one active staff superadmin is required."})
+
+
 class UserDetailView(RequirePermissionMixin, generics.RetrieveUpdateAPIView):
     serializer_class = UserAdminSerializer
     required_permission = "can_manage_staff"
     http_method_names = ["get", "patch", "head", "options"]
 
     def get_queryset(self):
-        return get_user_model().objects.all()
+        return get_user_model().objects.select_related("admin_profile")
 
     def patch(self, request, *args, **kwargs):
         user = self.get_object()
-        serializer = UserAdminUpdateSerializer(data=request.data, partial=True)
+        serializer = UserAdminUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         before = _staff_snapshot(user)
+        _validate_staff_update(request, user, serializer.validated_data, before)
 
         with transaction.atomic():
             for field in ("is_active", "is_staff"):
@@ -238,6 +275,7 @@ class UserDetailView(RequirePermissionMixin, generics.RetrieveUpdateAPIView):
                 request=request,
                 action="user.update_staff",
                 target=user,
+                reason=serializer.validated_data["reason"],
                 before=before,
                 after=after,
             )
@@ -452,7 +490,9 @@ class SiteConfigDetailView(RequirePermissionMixin, APIView):
     required_permission = "can_manage_settings"
 
     def patch(self, request, key):
-        serializer = SiteConfigUpdateSerializer(data=request.data, partial=True)
+        if key not in ALLOWED_SITE_CONFIG_KEYS:
+            raise ValidationError({"key": "Unsupported site config key."})
+        serializer = SiteConfigUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         with transaction.atomic():
