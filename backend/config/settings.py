@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     "shop.apps.ShopConfig",
     "orders.apps.OrdersConfig",
     "payments.apps.PaymentsConfig",
+    "admin_console.apps.AdminConsoleConfig",
 ]
 
 MIDDLEWARE = [

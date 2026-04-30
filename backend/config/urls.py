@@ -21,4 +21,5 @@ urlpatterns = [
     path("api/orders/query", QueryOrderView.as_view()),
     path("api/orders/<str:order_no>/payment", OrderPaymentView.as_view()),
     path("api/payments/", include("payments.urls")),
+    path("api/admin-console/", include("admin_console.urls")),
 ]
