@@ -66,6 +66,11 @@ class ProductSerializer(serializers.ModelSerializer):
             "void": counts.get("void", 0),
         }
 
+    def validate_price(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Price must be greater than 0.")
+        return value
+
 
 class CardAdminSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)

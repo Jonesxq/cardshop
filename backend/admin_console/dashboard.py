@@ -45,11 +45,9 @@ def get_dashboard_payload():
     start = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.min.time()))
     end = start + timezone.timedelta(days=1)
 
+    today_order_count = Order.objects.filter(created_at__gte=start, created_at__lt=end).count()
     paid_today = Order.objects.filter(status=Order.Status.PAID, paid_at__gte=start, paid_at__lt=end)
-    summary = paid_today.aggregate(
-        today_order_count=Count("id"),
-        today_paid_amount=Coalesce(Sum("amount"), Decimal("0.00")),
-    )
+    summary = paid_today.aggregate(today_paid_amount=Coalesce(Sum("amount"), Decimal("0.00")))
     pending_order_count = Order.objects.filter(status=Order.Status.PENDING).count()
     abnormal_payment_count = PaymentTransaction.objects.exclude(status=PaymentTransaction.Status.SUCCESS).count()
 
@@ -126,7 +124,7 @@ def get_dashboard_payload():
 
     return {
         "summary": {
-            "today_order_count": summary["today_order_count"],
+            "today_order_count": today_order_count,
             "today_paid_amount": _money(summary["today_paid_amount"]),
             "pending_order_count": pending_order_count,
             "low_stock_product_count": low_stock_product_count,

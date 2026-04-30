@@ -1,6 +1,6 @@
 from django.db.models import Count, Q
 from rest_framework import generics
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -123,6 +123,8 @@ class CardListView(RequirePermissionMixin, generics.ListAPIView):
         queryset = CardSecret.objects.select_related("product", "reserved_order").order_by("-created_at", "id")
         product_id = self.request.query_params.get("product_id")
         if product_id:
+            if not product_id.isdecimal():
+                raise ValidationError({"product_id": "Enter a valid integer."})
             queryset = queryset.filter(product_id=product_id)
         status = self.request.query_params.get("status")
         if status:

@@ -82,6 +82,24 @@ class AdminConsoleReadApiTests(TestCase):
         self.assertEqual(response.data["summary"]["abnormal_payment_count"], 0)
         self.assertEqual(response.data["top_products"][0]["name"], "Codex Card")
 
+    def test_dashboard_today_order_count_includes_pending_created_today(self):
+        Order.objects.create(
+            order_no="O202604300002",
+            product=self.product,
+            quantity=1,
+            contact="pending@example.com",
+            amount=Decimal("40.00"),
+            status=Order.Status.PENDING,
+            expires_at=timezone.now() + timezone.timedelta(minutes=15),
+        )
+        self.authenticate(self.operator)
+
+        response = self.client.get("/api/admin-console/dashboard")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["summary"]["today_order_count"], 2)
+        self.assertEqual(response.data["summary"]["today_paid_amount"], "99.00")
+
     def test_dashboard_product_metrics_do_not_multiply_card_and_order_joins(self):
         for index in range(2):
             card = CardSecret(product=self.product)
@@ -176,6 +194,23 @@ class AdminConsoleReadApiTests(TestCase):
         self.assertEqual(product_response.status_code, 201)
         self.assertEqual(product_response.data["category_name"], "Agents")
 
+    def test_product_create_rejects_negative_price(self):
+        self.authenticate(self.operator)
+
+        response = self.client.post(
+            "/api/admin-console/products",
+            {
+                "category": self.category.id,
+                "name": "Invalid Card",
+                "price": "-1.00",
+                "is_active": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("price", response.data)
+
     def test_operator_can_patch_product_status(self):
         self.authenticate(self.operator)
 
@@ -188,6 +223,18 @@ class AdminConsoleReadApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.product.refresh_from_db()
         self.assertEqual(self.product.is_active, False)
+
+    def test_product_patch_rejects_zero_price(self):
+        self.authenticate(self.operator)
+
+        response = self.client.patch(
+            f"/api/admin-console/products/{self.product.id}",
+            {"price": "0.00"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("price", response.data)
 
     def test_finance_cannot_list_products(self):
         self.authenticate(self.finance)
@@ -229,6 +276,14 @@ class AdminConsoleReadApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data["results"]), 1)
         self.assertEqual(response.data["results"][0]["id"], reserved_card.id)
+
+    def test_cards_filter_rejects_invalid_product_id(self):
+        self.authenticate(self.operator)
+
+        response = self.client.get("/api/admin-console/cards", {"product_id": "abc"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("product_id", response.data)
 
     def test_operator_cannot_list_payment_transactions(self):
         self.authenticate(self.operator)
