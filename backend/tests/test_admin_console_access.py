@@ -59,6 +59,20 @@ class AdminConsoleAccessTests(TestCase):
         self.assertEqual(response.data["role"], "superadmin")
         self.assertEqual(response.data["permissions"]["can_manage_staff"], True)
 
+    def test_admin_profile_defaults_to_operator_with_timestamps(self):
+        user = self.User.objects.create_user(
+            username="new-operator@example.com",
+            email="new-operator@example.com",
+            password="Password123!",
+            is_staff=True,
+        )
+
+        profile = AdminProfile.objects.create(user=user)
+
+        self.assertEqual(profile.role, AdminProfile.Role.OPERATOR)
+        self.assertIsNotNone(profile.created_at)
+        self.assertIsNotNone(profile.updated_at)
+
     def test_audit_log_string_includes_action_and_actor(self):
         user = self.User.objects.create_user(
             username="operator@example.com",
