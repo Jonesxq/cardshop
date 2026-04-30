@@ -214,14 +214,16 @@ def _staff_snapshot(user):
     }
 
 
-def _has_active_staff_superadmin_excluding(user):
-    return (
+def _has_active_staff_superadmin_excluding(user, *, lock=False):
+    queryset = (
         get_user_model()
         .objects.exclude(id=user.id)
         .filter(is_active=True, is_staff=True)
         .filter(Q(is_superuser=True) | Q(admin_profile__role=AdminProfile.Role.SUPERADMIN))
-        .exists()
     )
+    if lock:
+        queryset = queryset.select_for_update()
+    return queryset.exists()
 
 
 def _validate_staff_update(request, user, data, before):
@@ -242,7 +244,7 @@ def _validate_staff_update(request, user, data, before):
         and next_is_staff
         and (user.is_superuser or next_role == AdminProfile.Role.SUPERADMIN)
     )
-    if not target_remains_superadmin and not _has_active_staff_superadmin_excluding(user):
+    if not target_remains_superadmin and not _has_active_staff_superadmin_excluding(user, lock=True):
         raise ValidationError({"role": "At least one active staff superadmin is required."})
 
 
@@ -255,13 +257,15 @@ class UserDetailView(RequirePermissionMixin, generics.RetrieveUpdateAPIView):
         return get_user_model().objects.select_related("admin_profile")
 
     def patch(self, request, *args, **kwargs):
-        user = self.get_object()
         serializer = UserAdminUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        before = _staff_snapshot(user)
-        _validate_staff_update(request, user, serializer.validated_data, before)
 
         with transaction.atomic():
+            queryset = self.filter_queryset(self.get_queryset().select_for_update())
+            user = get_object_or_404(queryset, pk=kwargs["pk"])
+            before = _staff_snapshot(user)
+            _validate_staff_update(request, user, serializer.validated_data, before)
+
             for field in ("is_active", "is_staff"):
                 if field in serializer.validated_data:
                     setattr(user, field, serializer.validated_data[field])

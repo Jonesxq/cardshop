@@ -98,6 +98,18 @@ def without_valid_values(preview):
     return result
 
 
+def without_sensitive_rejected_values(result):
+    audit_result = dict(result)
+    audit_result["rejected_samples"] = [
+        {
+            "row_number": sample["row_number"],
+            "status": sample["status"],
+        }
+        for sample in result.get("rejected_samples", [])
+    ]
+    return audit_result
+
+
 def commit_card_import(*, product_id, cards, request, reason):
     with transaction.atomic():
         product = get_object_or_404(Product.objects.select_for_update(), id=product_id)
@@ -116,7 +128,7 @@ def commit_card_import(*, product_id, cards, request, reason):
             action="inventory.import",
             target=product,
             reason=reason,
-            after=result,
+            after=without_sensitive_rejected_values(result),
         )
         result["log_id"] = log.id
 

@@ -153,6 +153,26 @@ class AdminConsoleInventoryImportTests(TestCase):
         self.assertEqual(log.reason, "Restock Codex Card inventory")
         self.assertEqual(log.after["created_count"], 2)
 
+    def test_commit_audit_log_does_not_store_rejected_card_values(self):
+        self.authenticate(self.operator)
+
+        response = self.client.post(
+            "/api/admin-console/cards/import/commit",
+            {
+                "product_id": self.product.id,
+                "cards": "EXISTING-001\nNEW-012\nNEW-012",
+                "reason": "Restock without leaking rejected secrets",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        log = AdminOperationLog.objects.get(id=response.data["log_id"])
+        self.assertEqual(log.after["rejected_samples"][0]["status"], "existing_duplicate")
+        self.assertNotIn("value", log.after["rejected_samples"][0])
+        self.assertNotIn("EXISTING-001", str(log.after))
+        self.assertNotIn("NEW-012", str(log.after))
+
     def test_commit_requires_non_empty_reason_and_creates_no_cards(self):
         self.authenticate(self.operator)
 

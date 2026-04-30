@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { adminMenusForSession, canUseAdminAction } from './permissions'
 
 describe('admin permissions', () => {
-  it('shows operator operations menus but hides finance and staff menus', () => {
+  it('shows operator operations menus and announcement content but hides finance and staff menus', () => {
     const session = {
       role: 'operator',
       permissions: {
@@ -21,13 +21,13 @@ describe('admin permissions', () => {
     expect(keys).toContain('orders')
     expect(keys).toContain('inventory')
     expect(keys).toContain('logs')
-    expect(keys).not.toContain('content')
+    expect(keys).toContain('content')
     expect(keys).not.toContain('payments')
     expect(keys).not.toContain('users')
     expect(canUseAdminAction(session, 'can_manage_inventory')).toBe(true)
   })
 
-  it('shows content menu only to settings managers', () => {
+  it('shows content menu to settings managers', () => {
     const session = {
       role: 'superadmin',
       permissions: {
@@ -38,5 +38,19 @@ describe('admin permissions', () => {
     const keys = adminMenusForSession(session).map((item) => item.key)
 
     expect(keys).toContain('content')
+  })
+
+  it('hides content menu without announcement or settings permissions', () => {
+    const session = {
+      role: 'finance',
+      permissions: {
+        can_manage_products: false,
+        can_manage_settings: false,
+      },
+    }
+
+    const keys = adminMenusForSession(session).map((item) => item.key)
+
+    expect(keys).not.toContain('content')
   })
 })

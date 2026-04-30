@@ -1,4 +1,7 @@
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -163,6 +166,36 @@ class AdminConsoleUsersContentTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+
+    def test_last_superadmin_check_runs_inside_atomic_transaction(self):
+        User = get_user_model()
+        target_admin = User.objects.create_user(
+            username="target-admin@example.com",
+            email="target-admin@example.com",
+            password="Password123!",
+            is_staff=True,
+        )
+        AdminProfile.objects.create(user=target_admin, role=AdminProfile.Role.SUPERADMIN)
+        real_check = __import__(
+            "admin_console.views",
+            fromlist=["_has_active_staff_superadmin_excluding"],
+        )._has_active_staff_superadmin_excluding
+        atomic_states = []
+
+        def asserting_check(*args, **kwargs):
+            atomic_states.append(connection.in_atomic_block)
+            return real_check(*args, **kwargs)
+
+        self.authenticate(self.superadmin)
+        with patch("admin_console.views._has_active_staff_superadmin_excluding", side_effect=asserting_check):
+            response = self.client.patch(
+                f"/api/admin-console/users/{target_admin.id}",
+                {"role": "finance", "reason": "Demote secondary superadmin"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(atomic_states, [True])
 
     def test_superadmin_can_list_users_with_results(self):
         self.authenticate(self.superadmin)

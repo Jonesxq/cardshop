@@ -6,13 +6,13 @@
         <p>维护公告和站点配置项</p>
       </div>
       <div class="admin-head-actions">
-        <el-button type="primary" :icon="Plus" @click="openAnnouncement()">新建公告</el-button>
+        <el-button v-if="canManageAnnouncements" type="primary" :icon="Plus" @click="openAnnouncement()">新建公告</el-button>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
       </div>
     </div>
 
     <section class="admin-grid two">
-      <div class="admin-panel">
+      <div v-if="canManageAnnouncements" class="admin-panel">
         <h2>公告</h2>
         <el-table :data="announcements" size="small" empty-text="暂无公告">
           <el-table-column prop="title" label="标题" min-width="150" />
@@ -30,7 +30,7 @@
         </el-table>
       </div>
 
-      <div class="admin-panel">
+      <div v-if="canManageSettings" class="admin-panel">
         <h2>站点配置</h2>
         <el-table :data="configs" size="small" empty-text="暂无配置">
           <el-table-column prop="key" label="键" width="140" />
@@ -75,7 +75,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Edit, Plus, Refresh } from '@element-plus/icons-vue'
 
@@ -86,7 +86,9 @@ import {
   updateAdminAnnouncement,
   updateAdminSiteConfig,
 } from '../../api/adminConsole'
+import { useAdminSessionStore } from '../../stores/adminSession'
 
+const admin = useAdminSessionStore()
 const loading = ref(false)
 const announcements = ref([])
 const configs = ref([])
@@ -94,13 +96,15 @@ const announcementDialog = ref(false)
 const configDialog = ref(false)
 const announcementForm = reactive({ id: null, title: '', content: '', is_active: true, sort_order: 0 })
 const configForm = reactive({ key: '', label: '', value: '' })
+const canManageAnnouncements = computed(() => Boolean(admin.permissions.can_manage_products))
+const canManageSettings = computed(() => Boolean(admin.permissions.can_manage_settings))
 
 const load = async () => {
   loading.value = true
   try {
     const [announcementResponse, configResponse] = await Promise.all([
-      fetchAdminAnnouncements({ page_size: 100 }),
-      fetchAdminSiteConfig({ page_size: 100 }),
+      canManageAnnouncements.value ? fetchAdminAnnouncements({ page_size: 100 }) : Promise.resolve({ results: [] }),
+      canManageSettings.value ? fetchAdminSiteConfig({ page_size: 100 }) : Promise.resolve({ results: [] }),
     ])
     announcements.value = announcementResponse.results || []
     configs.value = configResponse.results || []
