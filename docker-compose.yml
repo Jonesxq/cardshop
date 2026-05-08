@@ -7,7 +7,16 @@ services:
       MYSQL_USER: ${DB_USER:-cardshop}
       MYSQL_PASSWORD: ${DB_PASSWORD:-cardshop}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root-password}
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --performance-schema=OFF
+      --innodb-buffer-pool-size=${MYSQL_INNODB_BUFFER_POOL_SIZE:-256M}
+      --max-connections=${MYSQL_MAX_CONNECTIONS:-40}
+      --tmp-table-size=${MYSQL_TMP_TABLE_SIZE:-16M}
+      --max-heap-table-size=${MYSQL_MAX_HEAP_TABLE_SIZE:-16M}
+      --table-open-cache=${MYSQL_TABLE_OPEN_CACHE:-128}
+      --thread-cache-size=${MYSQL_THREAD_CACHE_SIZE:-8}
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -19,6 +28,13 @@ services:
   redis:
     image: ${REDIS_IMAGE:-m.daocloud.io/docker.io/library/redis:7-alpine}
     restart: unless-stopped
+    command: >
+      redis-server
+      --save ""
+      --appendonly no
+      --loglevel warning
+      --maxmemory ${REDIS_MAXMEMORY:-128mb}
+      --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     healthcheck:
@@ -46,6 +62,11 @@ services:
       DB_PORT: 3306
       REDIS_URL: redis://redis:6379/0
       SITE_URL: ${SITE_URL:-http://localhost}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-2}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-60}
+      GUNICORN_GRACEFUL_TIMEOUT: ${GUNICORN_GRACEFUL_TIMEOUT:-30}
+      GUNICORN_KEEPALIVE: ${GUNICORN_KEEPALIVE:-5}
     depends_on:
       mysql:
         condition: service_healthy
@@ -77,7 +98,7 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "${HTTP_PORT:-80}:80"
+      - "${HTTP_PORT:-8080}:80"
     volumes:
       - static_data:/static:ro
     healthcheck:

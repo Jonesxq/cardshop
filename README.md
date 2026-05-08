@@ -76,6 +76,8 @@ SITE_URL=http://你的服务器IP:8080
 docker compose up -d --build
 ```
 
+`2核2G` 小机建议直接沿用默认的小内存参数，不需要再额外放大 MySQL 和 Gunicorn。
+
 首次启动时，后端容器会自动执行：
 
 ```bash
@@ -290,6 +292,25 @@ DEFAULT_FROM_EMAIL=你的QQ邮箱
 | `REDIS_URL` | Docker 内为 `redis://redis:6379/0` |
 | `SITE_URL` | 前端站点地址，用于支付跳转和回调 |
 | `PAYMENT_PROVIDER` | `dev`、`alipay` 或其他已实现渠道 |
+
+适合 `2核2G` 小机的保守参数：
+
+```env
+MYSQL_INNODB_BUFFER_POOL_SIZE=256M
+MYSQL_MAX_CONNECTIONS=40
+MYSQL_TMP_TABLE_SIZE=16M
+MYSQL_MAX_HEAP_TABLE_SIZE=16M
+MYSQL_TABLE_OPEN_CACHE=128
+MYSQL_THREAD_CACHE_SIZE=8
+REDIS_MAXMEMORY=128mb
+GUNICORN_WORKERS=2
+GUNICORN_THREADS=2
+GUNICORN_TIMEOUT=60
+GUNICORN_GRACEFUL_TIMEOUT=30
+GUNICORN_KEEPALIVE=5
+```
+
+这组值偏向低并发、小流量、单机稳态。对当前这种卡密发货站点已经够用，后续只有在访问量明显上涨时再逐步放大。
 
 ## 验证和构建
 
